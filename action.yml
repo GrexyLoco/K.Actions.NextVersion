@@ -1,0 +1,37 @@
+name: 'Get Next Version'
+description: 'Parses manifest and determines next semantic version'
+inputs:
+  manifestPath:
+    description: 'Path to the .psd1 file'
+    required: false
+    default: ''
+  branchName:
+    description: 'Branch name (e.g. feature/foo)'
+    required: false
+    default: ''
+  commitMessage:
+    description: 'Last commit message'
+    required: false
+    default: ''
+
+outputs:
+  currentVersion:
+    description: 'The current version from the manifest'
+  bumpType:
+    description: 'Detected version bump type (major/minor/patch)'
+  newVersion:
+    description: 'The new semantic version'
+
+runs:
+  using: 'composite'
+  steps:
+    - shell: pwsh
+      run: |
+        $result = & "${{ github.action_path }}/Get-NextVersion.ps1" `
+          -ManifestPath "${{ inputs.manifestPath }}" `
+          -BranchName "${{ inputs.branchName }}" `
+          -CommitMessage "${{ inputs.commitMessage }}"
+
+        echo "currentVersion=$($result.CurrentVersion)" >> $env:GITHUB_OUTPUT
+        echo "bumpType=$($result.BumpType)" >> $env:GITHUB_OUTPUT
+        echo "newVersion=$($result.NewVersion)" >> $env:GITHUB_OUTPUT
