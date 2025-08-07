@@ -6,7 +6,7 @@ inputs:
     required: false
     default: ''
   branchName:
-    description: 'Current branch name for analysis. Uses ${{ github.ref_name }} if empty.'
+    description: 'Current branch name for analysis. Uses github.ref_name if empty.'
     required: false
     default: ''
   commitMessage:
@@ -44,7 +44,7 @@ runs:
     - id: run-script
       shell: pwsh
       run: |
-        $result = & "${{ github.action_path }}/Get-NextVersion.ps1" `
+        $result = & "$env:GITHUB_ACTION_PATH/Get-NextVersion.ps1" `
           -ManifestPath "${{ inputs.manifestPath }}" `
           -BranchName "${{ inputs.branchName }}" `
           -CommitMessage "${{ inputs.commitMessage }}" `
