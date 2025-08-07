@@ -219,6 +219,7 @@ function Get-ReleaseVersionBumpType {
     Write-Verbose "Final version bump type determined: '$highestBump' with suffix: '$finalSuffix'"
     return @{ bumpType = $highestBump; suffix = $finalSuffix }
 }
+
 <#
 .SYNOPSIS
     Finds the latest semantic version release tag in the repository.
@@ -360,6 +361,7 @@ function Get-TargetBranch {
         return 'main'
     }
 }
+
 function Get-VersionBumpType {
     [CmdletBinding()]
     [OutputType([hashtable])]

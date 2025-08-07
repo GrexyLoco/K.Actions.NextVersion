@@ -1,0 +1,142 @@
+name: 🧪 Test K.Actions.NextVersion
+
+on:
+  push:
+    branches: [ main, develop, feature/*, bugfix/*, major/*, refactor/* ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  test-versioning:
+    name: 🔄 Test Version Detection
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        branch-pattern:
+          - { name: "feature/test", expected: "minor" }
+          - { name: "bugfix/test", expected: "patch" }
+          - { name: "major/test", expected: "major" }
+          - { name: "refactor/test", expected: "patch" }
+        
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🔍 Test Version Detection
+        id: version
+        uses: ./
+        with:
+          manifestPath: './TestModule.psd1'
+          branchName: ${{ matrix.branch-pattern.name }}
+          commitMessage: 'Test commit message'
+
+      - name: ✅ Validate Results
+        run: |
+          echo "🔍 Testing branch pattern: ${{ matrix.branch-pattern.name }}"
+          echo "📋 Expected bump type: ${{ matrix.branch-pattern.expected }}"
+          echo "📊 Actual bump type: ${{ steps.version.outputs.bumpType }}"
+          echo "📈 Version progression: ${{ steps.version.outputs.currentVersion }} → ${{ steps.version.outputs.newVersion }}"
+          
+          if [ "${{ steps.version.outputs.bumpType }}" = "${{ matrix.branch-pattern.expected }}" ]; then
+            echo "✅ SUCCESS: Bump type matches expectation"
+          else
+            echo "❌ FAILURE: Expected ${{ matrix.branch-pattern.expected }}, got ${{ steps.version.outputs.bumpType }}"
+            exit 1
+          fi
+
+  test-breaking-changes:
+    name: 💥 Test Breaking Change Detection  
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🧪 Test Breaking Change Override
+        id: breaking
+        uses: ./
+        with:
+          manifestPath: './TestModule.psd1'
+          branchName: 'bugfix/test-fix'
+          commitMessage: 'BREAKING: This should trigger major bump'
+
+      - name: ✅ Validate Breaking Change Detection
+        run: |
+          echo "🔍 Testing breaking change override"
+          echo "📋 Expected bump type: major"
+          echo "📊 Actual bump type: ${{ steps.breaking.outputs.bumpType }}"
+          
+          if [ "${{ steps.breaking.outputs.bumpType }}" = "major" ]; then
+            echo "✅ SUCCESS: Breaking change correctly detected"
+          else
+            echo "❌ FAILURE: Breaking change not detected, got ${{ steps.breaking.outputs.bumpType }}"
+            exit 1
+          fi
+
+  test-auto-discovery:
+    name: 🔎 Test Auto-Discovery
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🔍 Test Auto-Discovery Mode
+        id: auto
+        uses: ./
+        # Keine manifestPath angegeben - sollte TestModule.psd1 automatisch finden
+
+      - name: ✅ Validate Auto-Discovery
+        run: |
+          echo "🔍 Testing auto-discovery functionality"
+          echo "📊 Found version: ${{ steps.auto.outputs.currentVersion }}"
+          echo "📋 Bump type: ${{ steps.auto.outputs.bumpType }}"
+          echo "📈 New version: ${{ steps.auto.outputs.newVersion }}"
+          
+          if [ -n "${{ steps.auto.outputs.currentVersion }}" ]; then
+            echo "✅ SUCCESS: Auto-discovery found manifest"
+          else
+            echo "❌ FAILURE: Auto-discovery failed"
+            exit 1
+          fi
+
+  integration-test:
+    name: 🔗 Integration Test
+    runs-on: ubuntu-latest
+    needs: [test-versioning, test-breaking-changes, test-auto-discovery]
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🚀 Full Integration Test
+        id: integration
+        uses: ./
+        with:
+          manifestPath: './TestModule.psd1'
+          branchName: ${{ github.ref_name }}
+          commitMessage: ${{ github.event.head_commit.message || 'Integration test commit' }}
+
+      - name: 📋 Display Complete Results
+        run: |
+          echo "## 🎯 K.Actions.NextVersion Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Current Version | \`${{ steps.integration.outputs.currentVersion }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Bump Type | \`${{ steps.integration.outputs.bumpType }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| New Version | \`${{ steps.integration.outputs.newVersion }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.event.head_commit.message || 'N/A' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **All tests passed successfully!**" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🎉 Success Notification
+        run: |
+          echo "🎉 ALL TESTS PASSED!"
+          echo "✅ Version detection working correctly"
+          echo "✅ Breaking change detection working correctly" 
+          echo "✅ Auto-discovery working correctly"
+          echo "✅ Integration test completed successfully"

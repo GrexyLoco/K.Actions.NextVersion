@@ -1,0 +1,127 @@
+name: 🚀 Release K.Actions.NextVersion
+
+on:
+  push:
+    branches: [ master, main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  version-and-release:
+    name: 📦 Version & Release
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Determine Next Version
+        id: version
+        uses: ./
+        with:
+          manifestPath: './TestModule.psd1'
+          branchName: ${{ github.ref_name }}
+          commitMessage: ${{ github.event.head_commit.message }}
+
+      - name: 📋 Version Information
+        run: |
+          echo "## 🎯 Release Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Previous Version | \`${{ steps.version.outputs.currentVersion }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Bump Type | \`${{ steps.version.outputs.bumpType }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| New Version | \`${{ steps.version.outputs.newVersion }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🏷️ Create Git Tag
+        if: steps.version.outputs.newVersion != steps.version.outputs.currentVersion
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.version.outputs.newVersion }}" -m "Release v${{ steps.version.outputs.newVersion }}"
+          git push origin "v${{ steps.version.outputs.newVersion }}"
+
+      - name: 📦 Create GitHub Release
+        if: steps.version.outputs.newVersion != steps.version.outputs.currentVersion
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.version.outputs.newVersion }}
+          release_name: 🚀 K.Actions.NextVersion v${{ steps.version.outputs.newVersion }}
+          body: |
+            ## 🎉 Release v${{ steps.version.outputs.newVersion }}
+            
+            **Bump Type:** `${{ steps.version.outputs.bumpType }}`  
+            **Previous Version:** `${{ steps.version.outputs.currentVersion }}`  
+            **Branch:** `${{ github.ref_name }}`
+            
+            ### 📋 What's Changed
+            
+            This release was automatically generated based on semantic versioning rules:
+            
+            - **Major** (`X.0.0`): Breaking changes, major API changes
+            - **Minor** (`X.Y.0`): New features, backward compatible
+            - **Patch** (`X.Y.Z`): Bug fixes, small improvements
+            
+            ### 🚀 Usage
+            
+            ```yaml
+            - name: Get Next Version
+              uses: GrexyLoco/K.Actions.NextVersion@v${{ steps.version.outputs.newVersion }}
+              with:
+                manifestPath: './MyModule/MyModule.psd1'
+            ```
+            
+            ### 📖 Documentation
+            
+            See [README.md](README.md) for complete usage instructions and examples.
+            
+            ---
+            
+            **Full Changelog**: https://github.com/GrexyLoco/K.Actions.NextVersion/compare/v${{ steps.version.outputs.currentVersion }}...v${{ steps.version.outputs.newVersion }}
+          draft: false
+          prerelease: false
+
+      - name: 🎯 Update Major Version Tag
+        if: steps.version.outputs.newVersion != steps.version.outputs.currentVersion
+        run: |
+          # Extract major version (e.g., v1.2.3 -> v1)
+          MAJOR_VERSION=$(echo "v${{ steps.version.outputs.newVersion }}" | cut -d. -f1)
+          
+          # Delete existing major version tag if it exists
+          git tag -d "$MAJOR_VERSION" 2>/dev/null || true
+          git push origin ":refs/tags/$MAJOR_VERSION" 2>/dev/null || true
+          
+          # Create new major version tag
+          git tag -a "$MAJOR_VERSION" -m "Major version tag for $MAJOR_VERSION.x.x"
+          git push origin "$MAJOR_VERSION"
+          
+          echo "Updated major version tag: $MAJOR_VERSION"
+
+      - name: ✅ Release Complete
+        if: steps.version.outputs.newVersion != steps.version.outputs.currentVersion
+        run: |
+          echo "🎉 Release v${{ steps.version.outputs.newVersion }} created successfully!"
+          echo "✅ Git tag created: v${{ steps.version.outputs.newVersion }}"
+          echo "✅ GitHub release published"
+          echo "✅ Major version tag updated"
+          echo ""
+          echo "📋 Users can now reference this action as:"
+          echo "   uses: GrexyLoco/K.Actions.NextVersion@v${{ steps.version.outputs.newVersion }}"
+          echo "   uses: GrexyLoco/K.Actions.NextVersion@$(echo "v${{ steps.version.outputs.newVersion }}" | cut -d. -f1)"
+
+      - name: ℹ️ No Release Needed
+        if: steps.version.outputs.newVersion == steps.version.outputs.currentVersion
+        run: |
+          echo "ℹ️ No version change detected"
+          echo "Current version: ${{ steps.version.outputs.currentVersion }}"
+          echo "Calculated version: ${{ steps.version.outputs.newVersion }}"
+          echo "No release will be created."
