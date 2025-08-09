@@ -5,7 +5,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/GrexyLoco/K.Actions.NextVersion)](https://github.com/GrexyLoco/K.Actions.NextVersion/releases)
 [![License](https://img.shields.io/github/license/GrexyLoco/K.Actions.NextVersion)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://github.com/PowerShell/PowerShell)
-[![Pester Tests](https://img.shields.io/badge/Tests-Pester-green.svg)](Tests/)
+[![Pester Tests](https://img.shields.io/badge/Tests-Pester-green.svg)](Test/)
 
 **Die intelligenteste GitHub Action für automatisches Semantic Versioning von PowerShell-Modulen!** 
 
@@ -149,7 +149,7 @@ git commit -m "HOTFIX-BETA: Security patch (testing)"
 # Sucht automatisch nach *.psd1 Dateien:
 MyProject/
 ├── src/MyModule/MyModule.psd1  ✅ Gefunden!
-├── tests/TestModule.psd1       ⚠️  Warnung bei mehreren
+├── Test/TestModule.psd1        ⚠️  Warnung bei mehreren
 └── docs/                       
 ```
 
@@ -451,7 +451,7 @@ on:
 **Problem:** Auto-Discovery findet mehrere PowerShell-Manifeste
 ```
 ⚠️ Multiple .psd1 files found. Using first one: ./src/Module.psd1
-Available manifests: ./src/Module.psd1, ./tests/TestModule.psd1
+Available manifests: ./src/Module.psd1, ./Test/TestModule.psd1
 ```
 
 **Lösung:** Expliziten Pfad angeben:
@@ -510,34 +510,32 @@ git commit -m "Updates"
 ### 🔬 **Lokaler Test mit PowerShell**
 
 ```powershell
-# Direkte Ausführung zum Testen
-.\Get-NextVersion.ps1 -ManifestPath ".\MyModule.psd1" -BranchName "feature/test" -TargetBranch "main"
-
-# Mit Verbose Output für Debugging
-.\Get-NextVersion.ps1 -Verbose
+# Modul importieren und ausführen
+Import-Module .\NextVersion\NextVersion.psd1 -Force
+Get-NextVersion -ManifestPath ".\MyModule.psd1" -BranchName "feature/test" -TargetBranch "main" -Verbose
 ```
 
 ### 🎭 **Mock-Szenarien für Tests**
 
 ```powershell
 # Test verschiedener Branch-Patterns
-.\Get-NextVersion.ps1 -BranchName "major/rewrite" -TargetBranch "master"     # → major
-.\Get-NextVersion.ps1 -BranchName "feature/new-api" -TargetBranch "master"   # → minor  
-.\Get-NextVersion.ps1 -BranchName "bugfix/critical" -TargetBranch "master"   # → patch
+Get-NextVersion -BranchName "major/rewrite" -TargetBranch "master"     # → major
+Get-NextVersion -BranchName "feature/new-api" -TargetBranch "master"   # → minor  
+Get-NextVersion -BranchName "bugfix/critical" -TargetBranch "master"   # → patch
 
 # Test Commit-Message-Override
-.\Get-NextVersion.ps1 -BranchName "bugfix/small" -CommitMessage "BREAKING: API Change"  # → major
+Get-NextVersion -BranchName "bugfix/small" -CommitMessage "BREAKING: API Change"  # → major
 ```
 
 ### 🧪 **Pester Tests ausführen**
 
 ```powershell
 # Vollständige Test-Suite ausführen
-Invoke-Pester .\Tests\Get-NextVersion.Tests.ps1 -Output Detailed
+Invoke-Pester .\Test\Get-NextVersion.Tests.ps1 -Output Detailed
 
 # Bestimmte Test-Kategorien
-Invoke-Pester .\Tests\Get-NextVersion.Tests.ps1 -Tag "BranchPatterns"
-Invoke-Pester .\Tests\Get-NextVersion.Tests.ps1 -Tag "CommitMessages"
+Invoke-Pester .\Test\Get-NextVersion.Tests.ps1 -Tag "BranchPatterns"
+Invoke-Pester .\Test\Get-NextVersion.Tests.ps1 -Tag "CommitMessages"
 ```
 
 ---
@@ -561,7 +559,7 @@ Neue Ideen? [Feature Request erstellen](https://github.com/GrexyLoco/K.Actions.N
 Verbesserungen willkommen! Bitte:
 - ✅ Fork das Repository
 - ✅ Erstelle Feature-Branch (`feature/amazing-feature`)
-- ✅ Füge Tests hinzu (`Tests/Get-NextVersion.Tests.ps1`)
+- ✅ Füge Tests hinzu (`Test/Get-NextVersion.Tests.ps1`)
 - ✅ Dokumentation aktualisieren
 - ✅ Pull Request erstellen
 
@@ -739,17 +737,20 @@ jobs:
 
 ## 🛠️ Lokale Entwicklung
 
-### PowerShell-Skript testen
+### PowerShell-Modul testen
 
 ```powershell
+# Modul laden
+Import-Module .\NextVersion\NextVersion.psd1 -Force
+
 # Basis-Test
-.\Get-NextVersion.ps1 -ManifestPath ".\MyModule.psd1" -BranchName "feature/test" -CommitMessage "Add new feature"
+Get-NextVersion -ManifestPath ".\MyModule.psd1" -BranchName "feature/test" -CommitMessage "Add new feature"
 
 # Mit Verbose-Ausgabe
-.\Get-NextVersion.ps1 -ManifestPath ".\MyModule.psd1" -BranchName "major/rewrite" -Verbose
+Get-NextVersion -ManifestPath ".\MyModule.psd1" -BranchName "major/rewrite" -Verbose
 
 # Breaking Change Test
-.\Get-NextVersion.ps1 -BranchName "bugfix/fix" -CommitMessage "BREAKING: Remove old API"
+Get-NextVersion -BranchName "bugfix/fix" -CommitMessage "BREAKING: Remove old API"
 ```
 
 ### Action lokal testen
@@ -804,13 +805,10 @@ docker run --rm -v "${PWD}:/workspace" -w /workspace \
 ```powershell
 # Pester-Tests lokal ausführen
 cd Tests
-Invoke-Pester .\Get-NextVersion.Tests.ps1
+Invoke-Pester .\Test\Get-NextVersion.Tests.ps1
 
 # Einfacher Test
 .\Test-Action.ps1
-
-# Mit spezifischen Parametern testen
-.\Get-NextVersion.ps1 -ManifestPath ".\TestModule.psd1" -BranchName "Feature/NEW-API" -Verbose
 ```
 
 ## 🤝 Beitragen

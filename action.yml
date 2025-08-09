@@ -44,15 +44,13 @@ runs:
     - id: run-script
       shell: pwsh
       run: |
-        $result = & "$env:GITHUB_ACTION_PATH/Get-NextVersion.ps1" `
-          -ManifestPath "${{ inputs.manifestPath }}" `
-          -BranchName "${{ inputs.branchName }}" `
-          -CommitMessage "${{ inputs.commitMessage }}" `
-          -TargetBranch "${{ inputs.targetBranch }}"
-
-        echo "currentVersion=$($result.CurrentVersion)" >> $env:GITHUB_OUTPUT
-        echo "bumpType=$($result.BumpType)" >> $env:GITHUB_OUTPUT
-        echo "newVersion=$($result.NewVersion)" >> $env:GITHUB_OUTPUT
-        echo "lastReleaseTag=$($result.LastReleaseTag)" >> $env:GITHUB_OUTPUT
-        echo "targetBranch=$($result.TargetBranch)" >> $env:GITHUB_OUTPUT
-        echo "suffix=$($result.Suffix)" >> $env:GITHUB_OUTPUT
+        $modulePath = Join-Path $env:GITHUB_ACTION_PATH 'NextVersion' 'NextVersion.psd1'
+        Import-Module $modulePath -Force
+        $result = Get-NextVersion -ManifestPath '${{ inputs.manifestPath }}' -BranchName '${{ inputs.branchName }}' -CommitMessage '${{ inputs.commitMessage }}' -TargetBranch '${{ inputs.targetBranch }}'
+        $outPath = $env:GITHUB_OUTPUT
+        Out-File -FilePath $outPath -InputObject "currentVersion=$($result.CurrentVersion)" -Append -Encoding utf8
+        Out-File -FilePath $outPath -InputObject "bumpType=$($result.BumpType)" -Append -Encoding utf8
+        Out-File -FilePath $outPath -InputObject "newVersion=$($result.NewVersion)" -Append -Encoding utf8
+        Out-File -FilePath $outPath -InputObject "lastReleaseTag=$($result.LastReleaseTag)" -Append -Encoding utf8
+        Out-File -FilePath $outPath -InputObject "targetBranch=$($result.TargetBranch)" -Append -Encoding utf8
+        Out-File -FilePath $outPath -InputObject "suffix=$($result.Suffix)" -Append -Encoding utf8
