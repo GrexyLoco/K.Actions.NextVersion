@@ -9,14 +9,14 @@ inputs:
     description: 'Current branch name for analysis. Uses github.ref_name if empty.'
     required: false
     default: ''
-  commitMessage:
-    description: 'Commit message for keyword analysis (legacy mode). Not used in release-based mode.'
-    required: false
-    default: ''
   targetBranch:
     description: 'Target branch for release analysis (main/master). Auto-discovery if empty.'
     required: false
     default: ''
+  forceFirstRelease:
+    description: 'Force first release even with unusual PSD1 version. Use when migrating existing projects.'
+    required: false
+    default: 'false'
 
 outputs:
   currentVersion:
@@ -37,6 +37,9 @@ outputs:
   suffix:
     description: 'Alpha/Beta suffix if detected (alpha/beta/empty)'
     value: ${{ steps.run-script.outputs.suffix }}
+  warning:
+    description: 'Warning message if unusual version detected'
+    value: ${{ steps.run-script.outputs.warning }}
 
 runs:
   using: 'composite'
@@ -47,8 +50,8 @@ runs:
         $result = & "$env:GITHUB_ACTION_PATH/Get-NextVersion.ps1" `
           -ManifestPath "${{ inputs.manifestPath }}" `
           -BranchName "${{ inputs.branchName }}" `
-          -CommitMessage "${{ inputs.commitMessage }}" `
-          -TargetBranch "${{ inputs.targetBranch }}"
+          -TargetBranch "${{ inputs.targetBranch }}" `
+          -ForceFirstRelease:$${{ inputs.forceFirstRelease }}
 
         echo "currentVersion=$($result.CurrentVersion)" >> $env:GITHUB_OUTPUT
         echo "bumpType=$($result.BumpType)" >> $env:GITHUB_OUTPUT
@@ -56,3 +59,4 @@ runs:
         echo "lastReleaseTag=$($result.LastReleaseTag)" >> $env:GITHUB_OUTPUT
         echo "targetBranch=$($result.TargetBranch)" >> $env:GITHUB_OUTPUT
         echo "suffix=$($result.Suffix)" >> $env:GITHUB_OUTPUT
+        echo "warning=$($result.Warning)" >> $env:GITHUB_OUTPUT
