@@ -185,13 +185,12 @@ function Get-NextSemanticVersion {
 
         if ($isFirstRelease) {
             Write-SafeInfoLog -Message "No existing release tags found - this is a first release"
-
             $firstReleaseResult = Test-FirstReleaseVersion -CurrentVersion $currentVersionString -BranchName $BranchName -ForceFirstRelease:$ForceFirstRelease
             if ($firstReleaseResult.Error) {
                 Write-SafeErrorLog -Message "First release error: $($firstReleaseResult.Error)"
                 return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType "none" -NewVersion $currentVersionString -IsFirstRelease $true -Error $firstReleaseResult.Error -Instructions $firstReleaseResult.Instructions
             }
-            $result = New-VersionResultObject -CurrentVersion $currentVersionString -BumpType $firstReleaseResult.BumpType -NewVersion $firstReleaseResult.NewVersion -IsFirstRelease $true -GitContext $firstReleaseResult.GitContext
+            return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType $firstReleaseResult.BumpType -NewVersion $firstReleaseResult.NewVersion -IsFirstRelease $true -GitContext $firstReleaseResult.GitContext
         }
         else {
             Write-SafeInfoLog -Message "Found existing release tag: $latestTag"
@@ -200,10 +199,9 @@ function Get-NextSemanticVersion {
             $finalBumpType = Get-HigherBumpType -BumpType1 $bumpType -BumpType2 $branchBumpType
             Write-SafeInfoLog -Message "Release-based bump: $bumpType, Branch-based bump: $branchBumpType, Final: $finalBumpType"
             $newVersion = Step-Version -Version $currentVersionString -BumpType $finalBumpType
-            $result = New-VersionResultObject -CurrentVersion $currentVersionString -BumpType $finalBumpType -NewVersion $newVersion.ToString() -LastReleaseTag $latestTag -IsFirstRelease $false -GitContext @{ ReleaseBumpType = $bumpType; BranchBumpType = $branchBumpType }
+            return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType $finalBumpType -NewVersion $newVersion.ToString() -LastReleaseTag $latestTag -IsFirstRelease $false -GitContext @{ ReleaseBumpType = $bumpType; BranchBumpType = $branchBumpType }
         }
-        Write-SafeTaskSuccessLog -Message "Version calculation completed successfully" -Context "Current: $($result.CurrentVersion) → New: $($result.NewVersion) (Bump: $($result.BumpType))"
-        return $result
+        # ...kein separates $result mehr, immer direkt return
     }
     catch {
         Write-SafeErrorLog -Message "Failed to calculate next semantic version" -Context $_.Exception.Message
@@ -360,7 +358,7 @@ function Test-FirstReleaseVersion {
                 Write-SafeErrorLog -Message "Failed to step version in first release: $CurrentVersion"
                 return New-VersionResultObject -BumpType "none" -NewVersion $CurrentVersion -Error "Failed to step version: $CurrentVersion"
             }
-            return New-VersionResultObject -BumpType $finalBumpType -NewVersion $newVersion.ToString() -Error $null -Instructions $null -GitContext @{
+            return New-VersionResultObject -BumpType $finalBumpType -NewVersion $newVersion.ToString() -GitContext @{
                 GitBumpType     = $gitBumpType
                 BranchBumpType  = $branchBumpType
                 IsStandardStart = $isStandardStart
