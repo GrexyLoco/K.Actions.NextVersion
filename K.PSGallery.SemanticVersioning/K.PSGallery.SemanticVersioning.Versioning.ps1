@@ -1,3 +1,20 @@
+# First Release Handling auslagern
+function Handle-FirstRelease {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CurrentVersion,
+        [Parameter(Mandatory = $true)]
+        [string]$BranchName,
+        [Parameter(Mandatory = $false)]
+        [switch]$ForceFirstRelease
+    )
+    $firstReleaseResult = Test-FirstReleaseVersion -CurrentVersion $CurrentVersion -BranchName $BranchName -ForceFirstRelease:$ForceFirstRelease
+    if ($firstReleaseResult.Error) {
+        Write-SafeErrorLog -Message "First release error: $($firstReleaseResult.Error)"
+        return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -IsFirstRelease $true -Error $firstReleaseResult.Error -Instructions $firstReleaseResult.Instructions
+    }
+    return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType $firstReleaseResult.BumpType -NewVersion $firstReleaseResult.NewVersion -IsFirstRelease $true -GitContext $firstReleaseResult.GitContext
+}
 # Konsistenzprüfung auslagern
 function Handle-ConsistencyCheck {
     param(
@@ -190,12 +207,7 @@ function Get-NextSemanticVersion {
 
         if ($isFirstRelease) {
             Write-SafeInfoLog -Message "No existing release tags found - this is a first release"
-            $firstReleaseResult = Test-FirstReleaseVersion -CurrentVersion $currentVersionString -BranchName $BranchName -ForceFirstRelease:$ForceFirstRelease
-            if ($firstReleaseResult.Error) {
-                Write-SafeErrorLog -Message "First release error: $($firstReleaseResult.Error)"
-                return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType "none" -NewVersion $currentVersionString -IsFirstRelease $true -Error $firstReleaseResult.Error -Instructions $firstReleaseResult.Instructions
-            }
-            return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType $firstReleaseResult.BumpType -NewVersion $firstReleaseResult.NewVersion -IsFirstRelease $true -GitContext $firstReleaseResult.GitContext
+            return Handle-FirstRelease -CurrentVersion $currentVersionString -BranchName $BranchName -ForceFirstRelease:$ForceFirstRelease
         }
         else {
             Write-SafeInfoLog -Message "Found existing release tag: $latestTag"
@@ -299,81 +311,78 @@ function Test-FirstReleaseVersion {
     .OUTPUTS
         PSCustomObject with BumpType, NewVersion, Error, Instructions, and GitContext.
     #>
-    [CmdletBinding()]
-    [OutputType([PSCustomObject])]
     param (
         [Parameter(Mandatory = $true)]
-        try {
-            Write-SafeInfoLog -Message "Analyzing first release version: $CurrentVersion"
-            # Parse version
-            try {
-                $version = [Version]::Parse($CurrentVersion)
-            } catch {
-                Write-SafeErrorLog -Message "Invalid version format in first release: $CurrentVersion"
-                return New-VersionResultObject -BumpType "none" -NewVersion $CurrentVersion -Error "Invalid version format: $CurrentVersion"
+        [string]$CurrentVersion,
+        [Parameter(Mandatory = $true)]
+        [string]$BranchName,
+        [Parameter(Mandatory = $false)]
+        [switch]$ForceFirstRelease
+    )
+    Write-SafeInfoLog -Message "Analyzing first release version: $CurrentVersion"
+    # Parse version
+    try {
+        $version = [Version]::Parse($CurrentVersion)
+    } catch {
+        Write-SafeErrorLog -Message "Invalid version format in first release: $CurrentVersion"
+        return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -IsFirstRelease $true -Error "Invalid version format: $CurrentVersion"
+    }
+    # Check for standard starting versions
+    $isStandardStart = ($version.ToString() -eq "0.0.0") -or ($version.ToString() -eq "1.0.0")
+    if (-not $isStandardStart -and -not $ForceFirstRelease) {
+        Write-SafeWarningLog -Message "Unusual PSD1 version detected for first release: $CurrentVersion"
+        return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -IsFirstRelease $true -Error "Unusual version for first release" -Instructions @{
+            Message         = "The PSD1 file contains an unusual version ($CurrentVersion) for a first release."
+            Recommendations = @(
+                "For new projects: Update PSD1 to ModuleVersion = '0.0.0' or '1.0.0'",
+                "For existing projects: Use -ForceFirstRelease to proceed with current version",
+                "For migrations: Consider if this should be tagged as v$CurrentVersion first"
+            )
+            NextSteps       = @(
+                "Option 1: Set ModuleVersion = '0.0.0' in PSD1, then re-run",
+                "Option 2: Use Get-NextSemanticVersion -ForceFirstRelease",
+                "Option 3: Manually tag current state: git tag v$CurrentVersion"
+            )
+        }
+    }
+    # Analyze git history for appropriate bump type
+    Write-SafeInfoLog -Message "Analyzing git history for version bump determination"
+    $gitBumpType = "patch"  # Default
+    try {
+        # Get all commits in repository
+        $commits = & git log --oneline --all 2>$null
+        if ($LASTEXITCODE -eq 0 -and $commits) {
+            # Analyze commit messages for keywords
+            $commitText = $commits -join " "
+            if ($commitText -match "BREAKING|MAJOR|breaking change") {
+                $gitBumpType = "major"
+                Write-SafeInfoLog -Message "Found BREAKING/MAJOR indicators in git history"
             }
-            # Check for standard starting versions
-            $isStandardStart = ($version.ToString() -eq "0.0.0") -or ($version.ToString() -eq "1.0.0")
-            if (-not $isStandardStart -and -not $ForceFirstRelease) {
-                Write-SafeWarningLog -Message "Unusual PSD1 version detected for first release: $CurrentVersion"
-                return New-VersionResultObject -BumpType "none" -NewVersion $CurrentVersion -Error "Unusual version for first release" -Instructions @{
-                    Message         = "The PSD1 file contains an unusual version ($CurrentVersion) for a first release."
-                    Recommendations = @(
-                        "For new projects: Update PSD1 to ModuleVersion = '0.0.0' or '1.0.0'",
-                        "For existing projects: Use -ForceFirstRelease to proceed with current version",
-                        "For migrations: Consider if this should be tagged as v$CurrentVersion first"
-                    )
-                    NextSteps       = @(
-                        "Option 1: Set ModuleVersion = '0.0.0' in PSD1, then re-run",
-                        "Option 2: Use Get-NextSemanticVersion -ForceFirstRelease",
-                        "Option 3: Manually tag current state: git tag v$CurrentVersion"
-                    )
-                }
-            }
-            # Analyze git history for appropriate bump type
-            Write-SafeInfoLog -Message "Analyzing git history for version bump determination"
-            $gitBumpType = "patch"  # Default
-            try {
-                # Get all commits in repository
-                $commits = & git log --oneline --all 2>$null
-                if ($LASTEXITCODE -eq 0 -and $commits) {
-                    # Analyze commit messages for keywords
-                    $commitText = $commits -join " "
-                    if ($commitText -match "BREAKING|MAJOR|breaking change") {
-                        $gitBumpType = "major"
-                        Write-SafeInfoLog -Message "Found BREAKING/MAJOR indicators in git history"
-                    }
-                    elseif ($commitText -match "FEATURE|MINOR|feat:|feature:") {
-                        $gitBumpType = "minor"
-                        Write-SafeInfoLog -Message "Found FEATURE/MINOR indicators in git history"
-                    }
-                }
-            }
-            catch {
-                Write-SafeWarningLog -Message "Could not analyze git history, using default patch bump"
-            }
-            # Also consider branch name
-            $branchBumpType = Get-VersionBumpType -BranchName $BranchName
-            $finalBumpType = Get-HigherBumpType -BumpType1 $gitBumpType -BumpType2 $branchBumpType
-            Write-SafeInfoLog -Message "First release bump determination: Git=$gitBumpType, Branch=$branchBumpType, Final=$finalBumpType"
-            # Calculate new version
-            try {
-                $newVersion = Step-Version -Version $CurrentVersion -BumpType $finalBumpType
-            } catch {
-                Write-SafeErrorLog -Message "Failed to step version in first release: $CurrentVersion"
-                return New-VersionResultObject -BumpType "none" -NewVersion $CurrentVersion -Error "Failed to step version: $CurrentVersion"
-            }
-            return New-VersionResultObject -BumpType $finalBumpType -NewVersion $newVersion.ToString() -GitContext @{
-                GitBumpType     = $gitBumpType
-                BranchBumpType  = $branchBumpType
-                IsStandardStart = $isStandardStart
-                ForceUsed       = $ForceFirstRelease.IsPresent
+            elseif ($commitText -match "FEATURE|MINOR|feat:|feature:") {
+                $gitBumpType = "minor"
+                Write-SafeInfoLog -Message "Found FEATURE/MINOR indicators in git history"
             }
         }
-        catch {
-            Write-SafeErrorLog -Message "Failed to test first release version" -Context $_.Exception.Message
-            return New-VersionResultObject -BumpType "none" -NewVersion $CurrentVersion -Error $_.Exception.Message
-        }
+    } catch {
+        Write-SafeWarningLog -Message "Could not analyze git history, using default patch bump"
+    }
+    # Also consider branch name
+    $branchBumpType = Get-VersionBumpType -BranchName $BranchName
+    $finalBumpType = Get-HigherBumpType -BumpType1 $gitBumpType -BumpType2 $branchBumpType
+    Write-SafeInfoLog -Message "First release bump determination: Git=$gitBumpType, Branch=$branchBumpType, Final=$finalBumpType"
+    # Calculate new version
+    try {
+        $newVersion = Step-Version -Version $CurrentVersion -BumpType $finalBumpType
+    } catch {
+        Write-SafeErrorLog -Message "Failed to step version in first release: $CurrentVersion"
+        return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -IsFirstRelease $true -Error "Failed to step version: $CurrentVersion"
+    }
+    return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType $finalBumpType -NewVersion $newVersion.ToString() -IsFirstRelease $true -Error $null -Instructions $null -GitContext @{
+        GitBumpType     = $gitBumpType
+        BranchBumpType  = $branchBumpType
+        IsStandardStart = $isStandardStart
+        ForceUsed       = $ForceFirstRelease.IsPresent
+    }
         # Calculate new version
         $newVersion = Step-Version -Version $CurrentVersion -BumpType $finalBumpType
         
