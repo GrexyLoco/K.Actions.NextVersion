@@ -1,4 +1,47 @@
 # Hilfsfunktion: Manifest-Handling
+
+# Generische Ergebnisobjekt-Fabrik für Versioning
+function New-VersionResultObject {
+    param(
+        [Parameter(Mandatory = $false)]
+        [ValidatePattern('^\d+\.\d+\.\d+$')]
+        [string]$CurrentVersion = $null,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet("major", "minor", "patch", "none")]
+        [string]$BumpType = "none",
+
+        [Parameter(Mandatory = $false)]
+        [ValidatePattern('^\d+\.\d+\.\d+$')]
+        [string]$NewVersion = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$LastReleaseTag = $null,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$IsFirstRelease = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Error = $null,
+
+        [Parameter(Mandatory = $false)]
+        $Instructions = $null,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateScript({ $_ -is [hashtable] })]
+        $GitContext = @{}
+    )
+    return [PSCustomObject]@{
+        CurrentVersion = $CurrentVersion
+        BumpType       = $BumpType
+        NewVersion     = $NewVersion
+        LastReleaseTag = $LastReleaseTag
+        IsFirstRelease = $IsFirstRelease
+        Error          = $Error
+        Instructions   = $Instructions
+        GitContext     = $GitContext
+    }
+}
 function Get-ValidManifestPath {
     param (
         [string]$ManifestPath
@@ -32,36 +75,37 @@ function Test-PSD1TagConsistency {
     try {
         $psd1Ver = [Version]::Parse($PSD1Version)
         $tagVer = [Version]::Parse(($LatestTag -replace '^v', ''))
-    } catch {
+    }
+    catch {
         return @{ RequiresAction = $true; Error = "Invalid version format in PSD1 or tag."; Instructions = "Check ModuleVersion and tag format."; Context = @{} }
     }
     if ($psd1Ver -lt $tagVer -and -not $ForceVersionMismatch) {
         return @{
             RequiresAction = $true
-            Error = "PSD1-Version ($PSD1Version) ist älter als der neueste Tag ($LatestTag)."
-            Instructions = @{
-                Message = "Bitte gleiche die Versionen ab."
+            Error          = "PSD1-Version ($PSD1Version) ist älter als der neueste Tag ($LatestTag)."
+            Instructions   = @{
+                Message  = "Bitte gleiche die Versionen ab."
                 Optionen = @(
                     "Option 1: Setze ModuleVersion in der PSD1 auf $LatestTag",
                     "Option 2: Lösche/ändere die Tags falls gewollt",
                     "Option 3: Nutze -ForceVersionMismatch, um absichtlich rückwärts zu gehen (nicht empfohlen)"
                 )
             }
-            Context = @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
+            Context        = @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
         }
     }
     if ($psd1Ver -gt $tagVer -and -not $ForceVersionMismatch) {
         return @{
             RequiresAction = $true
-            Error = "PSD1-Version ($PSD1Version) ist höher als der neueste Tag ($LatestTag)."
-            Instructions = @{
-                Message = "Großer Versionssprung erkannt. Prüfe, ob dies gewollt ist."
+            Error          = "PSD1-Version ($PSD1Version) ist höher als der neueste Tag ($LatestTag)."
+            Instructions   = @{
+                Message  = "Großer Versionssprung erkannt. Prüfe, ob dies gewollt ist."
                 Optionen = @(
                     "Option 1: Setze ModuleVersion auf $LatestTag für sequenzielle Releases",
                     "Option 2: Nutze -ForceVersionMismatch für absichtlichen Sprung"
                 )
             }
-            Context = @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
+            Context        = @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
         }
     }
     if ($psd1Ver -eq $tagVer) {
@@ -178,22 +222,14 @@ function Get-NextSemanticVersion {
         # Manifest-Handling ausgelagert
         $manifestResult = Get-ValidManifestPath -ManifestPath $ManifestPath
         if (-not $manifestResult.Success) {
-            return [PSCustomObject]@{
-                CurrentVersion = $null
-                BumpType = "none"
-                NewVersion = $null
-                LastReleaseTag = $null
-                IsFirstRelease = $null
-                Error = $manifestResult.Error
-                Instructions = "Please ensure that a valid manifest exists."
-                GitContext = @{}
-            }
+            return New-VersionResultObject -Error $manifestResult.Error -Instructions "Please ensure that a valid manifest exists."
         }
         $ManifestPath = $manifestResult.Value
         $manifestContent = Get-Content $ManifestPath -Raw
         if ($manifestContent -match "ModuleVersion\s*=\s*['\`"]([^'\`"]+)['\`"]") {
             $currentVersionString = $matches[1]
-        } else {
+        }
+        else {
             throw "Could not find ModuleVersion in manifest file"
         }
 
@@ -205,16 +241,7 @@ function Get-NextSemanticVersion {
         if (-not $isFirstRelease) {
             $consistencyResult = Test-PSD1TagConsistency -PSD1Version $currentVersionString -LatestTag $latestTag -ForceVersionMismatch:$ForceFirstRelease
             if ($consistencyResult.RequiresAction) {
-                return [PSCustomObject]@{
-                    CurrentVersion = $currentVersionString
-                    BumpType = "none"
-                    NewVersion = $currentVersionString
-                    LastReleaseTag = $latestTag
-                    IsFirstRelease = $false
-                    Error = $consistencyResult.Error
-                    Instructions = $consistencyResult.Instructions
-                    GitContext = $consistencyResult.Context
-                }
+                return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType "none" -NewVersion $currentVersionString -LastReleaseTag $latestTag -IsFirstRelease $false -Error $consistencyResult.Error -Instructions $consistencyResult.Instructions -GitContext $consistencyResult.Context
             }
         }
 
@@ -230,7 +257,8 @@ function Get-NextSemanticVersion {
             $result.BumpType = $firstReleaseResult.BumpType
             $result.NewVersion = $firstReleaseResult.NewVersion
             $result.GitContext = $firstReleaseResult.GitContext
-        } else {
+        }
+        else {
             Write-SafeInfoLog -Message "Found existing release tag: $latestTag"
             $bumpType = Get-ReleaseVersionBumpType -LastReleaseTag $latestTag -TargetBranch $TargetBranch
             $branchBumpType = Get-VersionBumpType -BranchName $BranchName
@@ -241,7 +269,7 @@ function Get-NextSemanticVersion {
             $result.NewVersion = $newVersion.ToString()
             $result.GitContext = @{
                 ReleaseBumpType = $bumpType
-                BranchBumpType = $branchBumpType
+                BranchBumpType  = $branchBumpType
             }
         }
         Write-SafeTaskSuccessLog -Message "Version calculation completed successfully" -Context "Current: $($result.CurrentVersion) → New: $($result.NewVersion) (Bump: $($result.BumpType))"
@@ -250,16 +278,7 @@ function Get-NextSemanticVersion {
     catch {
         Write-SafeErrorLog -Message "Failed to calculate next semantic version" -Context $_.Exception.Message
         
-        return [PSCustomObject]@{
-            CurrentVersion = $currentVersionString
-            BumpType = "none"
-            NewVersion = $currentVersionString
-            LastReleaseTag = $latestTag
-            IsFirstRelease = $false
-            Error = $_.Exception.Message
-            Instructions = $null
-            GitContext = @{}
-        }
+    return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType "none" -NewVersion $currentVersionString -LastReleaseTag $latestTag -IsFirstRelease $false -Error $_.Exception.Message
     }
 }
 
@@ -309,24 +328,18 @@ function Test-FirstReleaseVersion {
         if (-not $isStandardStart -and -not $ForceFirstRelease) {
             Write-SafeWarningLog -Message "Unusual PSD1 version detected for first release: $CurrentVersion"
             
-            return [PSCustomObject]@{
-                BumpType = "none"
-                NewVersion = $CurrentVersion
-                Error = "Unusual version for first release"
-                Instructions = @{
-                    Message = "The PSD1 file contains an unusual version ($CurrentVersion) for a first release."
-                    Recommendations = @(
-                        "For new projects: Update PSD1 to ModuleVersion = '0.0.0' or '1.0.0'",
-                        "For existing projects: Use -ForceFirstRelease to proceed with current version",
-                        "For migrations: Consider if this should be tagged as v$CurrentVersion first"
-                    )
-                    NextSteps = @(
-                        "Option 1: Set ModuleVersion = '0.0.0' in PSD1, then re-run",
-                        "Option 2: Use Get-NextSemanticVersion -ForceFirstRelease",
-                        "Option 3: Manually tag current state: git tag v$CurrentVersion"
-                    )
-                }
-                GitContext = @{}
+            return New-VersionResultObject -BumpType "none" -NewVersion $CurrentVersion -Error "Unusual version for first release" -Instructions @{
+                Message         = "The PSD1 file contains an unusual version ($CurrentVersion) for a first release."
+                Recommendations = @(
+                    "For new projects: Update PSD1 to ModuleVersion = '0.0.0' or '1.0.0'",
+                    "For existing projects: Use -ForceFirstRelease to proceed with current version",
+                    "For migrations: Consider if this should be tagged as v$CurrentVersion first"
+                )
+                NextSteps       = @(
+                    "Option 1: Set ModuleVersion = '0.0.0' in PSD1, then re-run",
+                    "Option 2: Use Get-NextSemanticVersion -ForceFirstRelease",
+                    "Option 3: Manually tag current state: git tag v$CurrentVersion"
+                )
             }
         }
         
@@ -344,12 +357,14 @@ function Test-FirstReleaseVersion {
                 if ($commitText -match "BREAKING|MAJOR|breaking change") {
                     $gitBumpType = "major"
                     Write-SafeInfoLog -Message "Found BREAKING/MAJOR indicators in git history"
-                } elseif ($commitText -match "FEATURE|MINOR|feat:|feature:") {
+                }
+                elseif ($commitText -match "FEATURE|MINOR|feat:|feature:") {
                     $gitBumpType = "minor"
                     Write-SafeInfoLog -Message "Found FEATURE/MINOR indicators in git history"
                 }
             }
-        } catch {
+        }
+        catch {
             Write-SafeWarningLog -Message "Could not analyze git history, using default patch bump"
         }
         
@@ -363,28 +378,22 @@ function Test-FirstReleaseVersion {
         $newVersion = Step-Version -Version $CurrentVersion -BumpType $finalBumpType
         
         return [PSCustomObject]@{
-            BumpType = $finalBumpType
-            NewVersion = $newVersion.ToString()
-            Error = $null
+            BumpType     = $finalBumpType
+            NewVersion   = $newVersion.ToString()
+            Error        = $null
             Instructions = $null
-            GitContext = @{
-                GitBumpType = $gitBumpType
-                BranchBumpType = $branchBumpType
+            GitContext   = @{
+                GitBumpType     = $gitBumpType
+                BranchBumpType  = $branchBumpType
                 IsStandardStart = $isStandardStart
-                ForceUsed = $ForceFirstRelease.IsPresent
+                ForceUsed       = $ForceFirstRelease.IsPresent
             }
         }
     }
     catch {
         Write-SafeErrorLog -Message "Failed to test first release version" -Context $_.Exception.Message
         
-        return [PSCustomObject]@{
-            BumpType = "none"
-            NewVersion = $CurrentVersion
-            Error = $_.Exception.Message
-            Instructions = $null
-            GitContext = @{}
-        }
+    return New-VersionResultObject -BumpType "none" -NewVersion $CurrentVersion -Error $_.Exception.Message
     }
 }
 
@@ -424,7 +433,8 @@ function Get-ReleaseVersionBumpType {
             $branches = & git branch -r 2>$null | Where-Object { $_ -match "(origin/main|origin/master)" }
             if ($branches) {
                 $TargetBranch = ($branches[0] -replace ".*origin/", "").Trim()
-            } else {
+            }
+            else {
                 $TargetBranch = "main"
             }
             Write-SafeInfoLog -Message "Auto-discovered target branch: $TargetBranch"
@@ -467,9 +477,11 @@ function Get-ReleaseVersionBumpType {
         
         if ($foundMajor) {
             return "major"
-        } elseif ($foundMinor) {
+        }
+        elseif ($foundMinor) {
             return "minor"
-        } else {
+        }
+        else {
             return "patch"
         }
     }
@@ -627,7 +639,8 @@ function Get-HigherBumpType {
     
     if ($priority[$BumpType1] -ge $priority[$BumpType2]) {
         return $BumpType1
-    } else {
+    }
+    else {
         return $BumpType2
     }
 }
