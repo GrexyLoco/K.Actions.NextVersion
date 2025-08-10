@@ -542,12 +542,12 @@ function Bump-Version {
 
 <#
 .SYNOPSIS
-    Validates first release version based on PSD1 content and provides warnings for unusual versions.
+    Validates first release version based on PSD1 content and provides structured guidance for unusual versions.
 
 .DESCRIPTION
-    Implements hybrid first release logic:
+    Implements hybrid first release logic with structured error handling:
     - Standard versions (0.0.0, 1.0.0): Use as base for bump
-    - Unusual versions (e.g., 3.5.2): Warn and require confirmation
+    - Unusual versions (e.g., 3.5.2): Return structured error with actionable guidance
     - Force flag: Skip validation and use PSD1 version
 
 .PARAMETER currentVersion
@@ -558,15 +558,15 @@ function Bump-Version {
 
 .OUTPUTS
     Hashtable
-    Returns validation result with baseVersion and warning message
+    Returns validation result with baseVersion, warning, actionRequired, and actionInstructions
 
 .EXAMPLE
     Test-FirstReleaseVersion -currentVersion "1.0.0" -forceFirstRelease:$false
-    Returns: @{ baseVersion = "1.0.0"; warning = "" }
+    Returns: @{ baseVersion = "1.0.0"; warning = ""; actionRequired = $false; actionInstructions = "" }
 
 .EXAMPLE
     Test-FirstReleaseVersion -currentVersion "3.5.2" -forceFirstRelease:$false
-    Returns: @{ baseVersion = "3.5.2"; warning = "Unusual first release version detected..." }
+    Returns structured error with actionRequired = $true and detailed actionInstructions
 #>
 function Test-FirstReleaseVersion {
     [CmdletBinding()]
@@ -587,6 +587,8 @@ function Test-FirstReleaseVersion {
         return @{ 
             baseVersion = $currentVersion
             warning = ""
+            actionRequired = $false
+            actionInstructions = ""
         }
     }
     
@@ -595,16 +597,55 @@ function Test-FirstReleaseVersion {
         return @{ 
             baseVersion = $currentVersion
             warning = "First release forced with version $currentVersion (migration mode)"
+            actionRequired = $false
+            actionInstructions = ""
         }
     }
     
-    # Unusual version detected - generate warning
-    $warningMessage = "Unusual first release version '$currentVersion' detected. Standard practice is to start with 0.0.0 or 1.0.0. Use -ForceFirstRelease to proceed anyway."
+    # Unusual version detected - return structured error guidance
+    $warningMessage = "Unusual first release version '$currentVersion' detected in PSD1 manifest"
+    
+    $actionInstructions = @"
+🔍 UNUSUAL FIRST RELEASE VERSION DETECTED
+
+Current PSD1 version: $currentVersion
+
+⚠️  ISSUE: First releases typically start with 0.0.0 or 1.0.0, but your manifest contains '$currentVersion'.
+
+📋 CHOOSE YOUR APPROACH:
+
+Option 1 - Fresh Start (Recommended for new projects):
+   • Update your .psd1 file: ModuleVersion = '0.0.0' or '1.0.0'
+   • Commit the change and re-run the workflow
+   • This follows standard semantic versioning practices
+
+Option 2 - Project Migration (For existing projects):
+   • Use -ForceFirstRelease flag to proceed with current version
+   • This treats '$currentVersion' as your starting point for future releases
+   • Add 'forceFirstRelease: true' to your workflow inputs
+
+Option 3 - Reset to Standard Version:
+   • Consider if you want to start fresh with standard versioning
+   • Update .psd1 to ModuleVersion = '1.0.0'
+   • This gives you a clean semantic versioning foundation
+
+🎯 NEXT STEPS:
+1. Review your project requirements
+2. Choose the appropriate option above
+3. Update your manifest or workflow configuration
+4. Re-run the workflow
+
+For migration scenarios, use: forceFirstRelease: true
+For fresh projects, update PSD1 to: 0.0.0 or 1.0.0
+"@
+
     Write-Warning $warningMessage
     
     return @{ 
         baseVersion = $currentVersion
         warning = $warningMessage
+        actionRequired = $true
+        actionInstructions = $actionInstructions
     }
 }
 
@@ -633,6 +674,8 @@ try {
             TargetBranch = $TargetBranch
             Suffix = ""
             Warning = "Not on target branch for release"
+            ActionRequired = $false
+            ActionInstructions = ""
         }
     }
 
@@ -679,16 +722,32 @@ try {
         Write-Verbose "No previous release tags found, implementing hybrid first release logic"
         Write-Host "🎉 No previous releases found - implementing first release logic!"
         
-        # Validate first release version (Hybrid Approach)
+        # Validate first release version (Hybrid Approach with Structured Error Handling)
         $firstReleaseValidation = Test-FirstReleaseVersion -currentVersion $currentVersion -forceFirstRelease $ForceFirstRelease.IsPresent
         $baseVersion = $firstReleaseValidation.baseVersion
         $warningMessage = $firstReleaseValidation.warning
+        $actionRequired = $firstReleaseValidation.actionRequired
+        $actionInstructions = $firstReleaseValidation.actionInstructions
         
-        # If there's a warning and no force flag, we should fail unless confirmed
-        if ($warningMessage -and -not $ForceFirstRelease) {
-            throw $warningMessage
+        # If action is required (unusual version without force flag), return structured error
+        if ($actionRequired) {
+            Write-Host "⚠️ Action Required: Unusual first release version detected"
+            Write-Host $actionInstructions
+            
+            return [PSCustomObject]@{
+                CurrentVersion = $currentVersion
+                BumpType = "none"
+                NewVersion = ""
+                LastReleaseTag = ""
+                TargetBranch = $TargetBranch
+                Suffix = ""
+                Warning = $warningMessage
+                ActionRequired = $true
+                ActionInstructions = $actionInstructions
+            }
         }
         
+        # Proceed with normal first release logic
         # Analyze git history to determine bump type
         $bumpResult = Get-ReleaseVersionBumpType -lastReleaseTag "" -targetBranch $TargetBranch
         $bumpType = $bumpResult.bumpType
@@ -738,6 +797,8 @@ try {
         TargetBranch = $TargetBranch
         Suffix = $suffix
         Warning = $warningMessage
+        ActionRequired = $false
+        ActionInstructions = ""
     }
 }
 catch {
@@ -751,6 +812,8 @@ catch {
         TargetBranch = $TargetBranch
         Suffix = ""
         Warning = ""
+        ActionRequired = $false
+        ActionInstructions = ""
         Error = $_.Exception.Message
     }
     exit 1

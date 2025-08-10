@@ -40,6 +40,12 @@ outputs:
   warning:
     description: 'Warning message if unusual version detected'
     value: ${{ steps.run-script.outputs.warning }}
+  actionRequired:
+    description: 'Whether manual action is required before proceeding (true/false)'
+    value: ${{ steps.run-script.outputs.actionRequired }}
+  actionInstructions:
+    description: 'Detailed instructions for required manual action'
+    value: ${{ steps.run-script.outputs.actionInstructions }}
 
 runs:
   using: 'composite'
@@ -60,3 +66,5 @@ runs:
         echo "targetBranch=$($result.TargetBranch)" >> $env:GITHUB_OUTPUT
         echo "suffix=$($result.Suffix)" >> $env:GITHUB_OUTPUT
         echo "warning=$($result.Warning)" >> $env:GITHUB_OUTPUT
+        echo "actionRequired=$($result.ActionRequired)" >> $env:GITHUB_OUTPUT
+        echo "actionInstructions=$($result.ActionInstructions)" >> $env:GITHUB_OUTPUT
