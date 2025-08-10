@@ -1,3 +1,21 @@
+# Hilfsfunktion: Manifest-Handling
+function Get-ValidManifestPath {
+    param (
+        [string]$ManifestPath
+    )
+    if ([string]::IsNullOrEmpty($ManifestPath)) {
+        $psd1Files = Get-ChildItem -Path . -Filter "*.psd1" -Recurse | Where-Object { $_.Name -notlike "*Tests*" }
+        if ($psd1Files.Count -eq 0) {
+            return @{ Success = $false; Value = $null; Error = "No .psd1 manifest file found by auto discover" }
+        }
+        $ManifestPath = $psd1Files[0].FullName
+        Write-SafeInfoLog -Message "Auto-discovered manifest: $ManifestPath"
+    }
+    if (-not (Test-Path $ManifestPath)) {
+        return @{ Success = $false; Value = $null; Error = "No .psd1 manifest file found for path $ManifestPath" }
+    }
+    return @{ Success = $true; Value = $ManifestPath; Error = $null }
+}
 
 # Semantic Versioning Functions for K.PSGallery.SemanticVersioning
 # Core versioning logic, manifest processing, and version calculation
@@ -157,36 +175,21 @@ function Get-NextSemanticVersion {
     try {
         Write-SafeTaskSuccessLog -Message "Starting semantic version calculation"
 
-        # Parse current version from manifest
-        if ([string]::IsNullOrEmpty($ManifestPath)) {
-            $psd1Files = Get-ChildItem -Path . -Filter "*.psd1" -Recurse | Where-Object { $_.Name -notlike "*Tests*" }
-            if ($psd1Files.Count -eq 0) {
-                return [PSCustomObject]@{
-                    CurrentVersion = $null
-                    BumpType = "none"
-                    NewVersion = $null
-                    LastReleaseTag = $null
-                    IsFirstRelease = $null
-                    Error = "No .psd1 manifest file found by auto discover"
-                    Instructions = "Please ensure that a valid manifest exists."
-                    GitContext = @{}
-                }
-            }
-            $ManifestPath = $psd1Files[0].FullName
-            Write-SafeInfoLog -Message "Auto-discovered manifest: $ManifestPath"
-        }
-        if (-not (Test-Path $ManifestPath)) {
+        # Manifest-Handling ausgelagert
+        $manifestResult = Get-ValidManifestPath -ManifestPath $ManifestPath
+        if (-not $manifestResult.Success) {
             return [PSCustomObject]@{
                 CurrentVersion = $null
                 BumpType = "none"
                 NewVersion = $null
                 LastReleaseTag = $null
                 IsFirstRelease = $null
-                Error = "No .psd1 manifest file found for path $ManifestPath"
-                Instructions = "Please ensure that a valid manifest exists and the path is correct."
+                Error = $manifestResult.Error
+                Instructions = "Please ensure that a valid manifest exists."
                 GitContext = @{}
             }
         }
+        $ManifestPath = $manifestResult.Value
         $manifestContent = Get-Content $ManifestPath -Raw
         if ($manifestContent -match "ModuleVersion\s*=\s*['\`"]([^'\`"]+)['\`"]") {
             $currentVersionString = $matches[1]
