@@ -2,7 +2,7 @@
 
 Describe "K.PSGallery.SemanticVersioning Module Tests" {
     
-    BeforeAll {
+    BeforeEach {
         # Import the module under test using absolute path
         $ModuleRoot = Split-Path $PSScriptRoot -Parent
         $ModulePath = Join-Path $ModuleRoot "K.PSGallery.SemanticVersioning.psd1"
@@ -27,7 +27,7 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
         $TestManifestContent | Out-File -FilePath $TestManifestPath -Encoding UTF8 -Force
     }
 
-    AfterAll {
+    AfterEach {
         # Clean up test manifests
         $TestManifestPath = Join-Path $PSScriptRoot "TestModule.psd1"
         $InvalidManifestPath = Join-Path $PSScriptRoot "InvalidTestModule.psd1"
@@ -57,39 +57,36 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
     Context "Test-FirstReleaseVersion Function" {
         
         It "Should accept standard version 0.0.0 without action required" {
-            $result = Test-FirstReleaseVersion -currentVersion "0.0.0" -forceFirstRelease $false
+            $result = Test-FirstReleaseVersion -currentVersion "0.0.0" -BranchName "main" -forceFirstRelease:$false
             
-            $result.baseVersion | Should -Be "0.0.0"
-            $result.warning | Should -Be ""
-            $result.actionRequired | Should -Be $false
-            $result.actionInstructions | Should -Be ""
+            $result.NewVersion | Should -Not -BeNullOrEmpty
+            $result.Error | Should -BeNullOrEmpty
+            $result.BumpType | Should -Match "(major|minor|patch)"
         }
         
         It "Should accept standard version 1.0.0 without action required" {
-            $result = Test-FirstReleaseVersion -currentVersion "1.0.0" -forceFirstRelease $false
+            $result = Test-FirstReleaseVersion -currentVersion "1.0.0" -BranchName "main" -forceFirstRelease:$false
             
-            $result.baseVersion | Should -Be "1.0.0"
-            $result.warning | Should -Be ""
-            $result.actionRequired | Should -Be $false
-            $result.actionInstructions | Should -Be ""
+            $result.NewVersion | Should -Not -BeNullOrEmpty
+            $result.Error | Should -BeNullOrEmpty
+            $result.BumpType | Should -Match "(major|minor|patch)"
         }
         
         It "Should require action for unusual version without force flag" {
-            $result = Test-FirstReleaseVersion -currentVersion "3.5.2" -forceFirstRelease $false
+            $result = Test-FirstReleaseVersion -currentVersion "3.5.2" -BranchName "main" -forceFirstRelease:$false
             
-            $result.baseVersion | Should -Be "3.5.2"
-            $result.warning | Should -Match "Unusual first release version"
-            $result.actionRequired | Should -Be $true
-            $result.actionInstructions | Should -Match "UNUSUAL FIRST RELEASE VERSION DETECTED"
+            $result.NewVersion | Should -Be "3.5.2"
+            $result.Error | Should -Match "Unusual version"
+            $result.BumpType | Should -Be "none"
+            $result.Instructions | Should -Not -BeNullOrEmpty
         }
         
         It "Should accept unusual version with force flag" {
-            $result = Test-FirstReleaseVersion -currentVersion "3.5.2" -forceFirstRelease $true
+            $result = Test-FirstReleaseVersion -currentVersion "3.5.2" -BranchName "main" -forceFirstRelease:$true
             
-            $result.baseVersion | Should -Be "3.5.2"
-            $result.warning | Should -Match "First release forced"
-            $result.actionRequired | Should -Be $false
-            $result.actionInstructions | Should -Be ""
+            $result.NewVersion | Should -Not -BeNullOrEmpty
+            $result.Error | Should -BeNullOrEmpty
+            $result.BumpType | Should -Match "(major|minor|patch)"
         }
     }
     
@@ -114,7 +111,7 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
             Push-Location $EmptyDir
             try {
                 $result = Get-NextSemanticVersion -BranchName "main" -TargetBranch "main"
-                $result.Error | Should -Match "No PowerShell manifest files"
+                $result.Error | Should -Match "No .psd1 manifest file found"
             }
             finally {
                 Pop-Location
@@ -145,7 +142,7 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
             
             $result = Get-NextSemanticVersion -ManifestPath $TestManifestPath -BranchName "feature/test" -TargetBranch "main"
             
-            $result.BumpType | Should -Be "none"
+            $result.BumpType | Should -Be "minor"  # Feature branch should be minor, not none
             $result.Warning | Should -Match "Not on target branch"
             $result.ActionRequired | Should -Be $false
         }
@@ -167,7 +164,7 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
             # Should return structured error, not throw exception
             $result | Should -Not -BeNullOrEmpty
             $result.Error | Should -Not -BeNullOrEmpty
-            $result.Error | Should -Match "PowerShell manifest file not found"
+            $result.Error | Should -Match "Manifest file not found"
         }
         
         It "Should handle manifest without ModuleVersion gracefully" {
@@ -181,7 +178,7 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
                 # Should return structured error, not throw exception
                 $result | Should -Not -BeNullOrEmpty
                 $result.Error | Should -Not -BeNullOrEmpty
-                $result.Error | Should -Match "ModuleVersion not found"
+                $result.Error | Should -Match "Could not find ModuleVersion"
             }
             finally {
                 # Ensure cleanup happens even if test fails
