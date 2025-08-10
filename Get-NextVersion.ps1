@@ -1,14 +1,19 @@
 <#
 .SYNOPSIS
-    Calculates the next semantic version number based on branch naming conventions and commit messages.
+    Calculates the next semantic version number based on branch naming conventions and git history analysis.
 
 .DESCRIPTION
     This script implements semantic versioning (SemVer) logic for PowerShell modules by analyzing
-    branch names and commit messages to determine the appropriate version bump type (major, minor, or patch).
+    merged branches since the last release to determine the appropriate version bump type (major, minor, or patch).
+    
+    For first releases (no existing tags), the script uses a hybrid approach:
+    - If PSD1 version is 0.0.0 or 1.0.0: Uses as base for version bump
+    - If PSD1 version is unusual (e.g., 3.5.2): Warns and requires confirmation
+    - Analyzes git history since repository start to determine appropriate bump type
     
     The script follows these conventions:
     - Major version bump: Triggered by 'major/' branch prefix or 'BREAKING'/'MAJOR' in commit message
-    - Minor version bump: Triggered by 'feature/' branch prefix
+    - Minor version bump: Triggered by 'feature/' branch prefix or 'FEATURE'/'MINOR' in commit message
     - Patch version bump: Triggered by 'bugfix/' or 'refactor/' branch prefixes, or as default fallback
     
     This is typically used in CI/CD pipelines to automatically determine version numbers for releases.
@@ -30,41 +35,41 @@
     - refactor/refactor-name → Patch version bump (X.Y.Z)
     - Any other pattern    → Patch version bump (X.Y.Z)
 
-.PARAMETER CommitMessage
-    The commit message to analyze for version bump keywords.
-    If the message contains 'BREAKING' or 'MAJOR' (case-insensitive), it will trigger a major version bump
-    regardless of the branch naming convention.
+.PARAMETER TargetBranch
+    Target branch for release analysis (main/master). Auto-discovery if empty.
+
+.PARAMETER ForceFirstRelease
+    Force first release even with unusual PSD1 version. Use when migrating existing projects.
 
 .OUTPUTS
-    System.String
-    Outputs GitHub Actions compatible set-output commands:
-    - ::set-output name=version::<new-version>
-    - ::set-output name=bumpType::<major|minor|patch>
+    PSCustomObject
+    Returns object with properties:
+    - CurrentVersion: The current version from the manifest file
+    - BumpType: Detected version bump type (major/minor/patch/none)
+    - NewVersion: The calculated new semantic version
+    - LastReleaseTag: The latest release tag found
+    - TargetBranch: The target branch used for analysis
+    - Suffix: Alpha/Beta suffix if detected
+    - Warning: Warning message if unusual version detected
 
 .EXAMPLE
     .\Get-NextVersion.ps1
     
     Uses default parameters to find manifest and determine version from current environment.
-    Output: ::set-output name=version::1.2.4
-            ::set-output name=bumpType::patch
 
 .EXAMPLE
-    .\Get-NextVersion.ps1 -ManifestPath "C:\MyModule\MyModule.psd1" -BranchName "feature/new-logging" -CommitMessage "Add new logging functionality"
+    .\Get-NextVersion.ps1 -ManifestPath "C:\MyModule\MyModule.psd1" -BranchName "feature/new-logging"
     
-    Explicitly specifies all parameters for a feature branch.
-    Output: ::set-output name=version::1.3.0
-            ::set-output name=bumpType::minor
+    Explicitly specifies manifest path and branch for a feature branch.
 
 .EXAMPLE
-    .\Get-NextVersion.ps1 -BranchName "bugfix/critical-fix" -CommitMessage "BREAKING: Remove deprecated API"
+    .\Get-NextVersion.ps1 -ForceFirstRelease:$true
     
-    Even though it's a bugfix branch, the BREAKING keyword in commit message triggers major bump.
-    Output: ::set-output name=version::2.0.0
-            ::set-output name=bumpType::major
+    Forces first release even if PSD1 has unusual version (e.g., when migrating existing project).
 
 .NOTES
-    Author: Generated for K.PSGallery.LoggingModule
-    Version: 1.0
+    Author: K.Actions.NextVersion
+    Version: 2.0
     Created: 2025
     
     This script is designed to work seamlessly with GitHub Actions workflows and follows
@@ -88,11 +93,11 @@ param (
     [Parameter(HelpMessage = "Git branch name to analyze for version bump type")]
     [string]$BranchName = $env:GITHUB_REF_NAME,
     
-    [Parameter(HelpMessage = "Commit message to scan for version bump keywords (legacy mode only)")]
-    [string]$CommitMessage = "",
-    
     [Parameter(HelpMessage = "Target branch for release analysis (auto-discovery if empty)")]
-    [string]$TargetBranch = ""
+    [string]$TargetBranch = "",
+    
+    [Parameter(HelpMessage = "Force first release even with unusual PSD1 version")]
+    [switch]$ForceFirstRelease
 )
 
 <#
@@ -118,16 +123,16 @@ param (
     Auto-discovered if not specified.
 
 .OUTPUTS
-    System.String
-    Returns one of: 'major', 'minor', or 'patch'
+    Hashtable
+    Returns hashtable with keys: bumpType, suffix
 
 .EXAMPLE
     Get-ReleaseVersionBumpType -lastReleaseTag "v1.2.3" -targetBranch "main"
-    Returns: "minor" (if feature branches were merged since v1.2.3)
+    Returns: @{ bumpType = "minor"; suffix = "" }
 
 .EXAMPLE
     Get-ReleaseVersionBumpType -lastReleaseTag "" -targetBranch "master"  
-    Returns: "patch" (analyzing from repository start, defaulting to patch)
+    Returns: @{ bumpType = "patch"; suffix = "" }
 #>
 function Get-ReleaseVersionBumpType {
     [CmdletBinding()]
@@ -219,6 +224,7 @@ function Get-ReleaseVersionBumpType {
     Write-Verbose "Final version bump type determined: '$highestBump' with suffix: '$finalSuffix'"
     return @{ bumpType = $highestBump; suffix = $finalSuffix }
 }
+
 <#
 .SYNOPSIS
     Finds the latest semantic version release tag in the repository.
@@ -360,6 +366,7 @@ function Get-TargetBranch {
         return 'main'
     }
 }
+
 function Get-VersionBumpType {
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -457,6 +464,9 @@ function Get-VersionBumpType {
     The type of version increment to perform.
     Valid values: 'major', 'minor', 'patch'
 
+.PARAMETER suffix
+    Optional suffix to append (alpha, beta)
+
 .OUTPUTS
     System.String
     Returns the new version string in semantic version format.
@@ -530,9 +540,77 @@ function Bump-Version {
     return $newVersion
 }
 
+<#
+.SYNOPSIS
+    Validates first release version based on PSD1 content and provides warnings for unusual versions.
+
+.DESCRIPTION
+    Implements hybrid first release logic:
+    - Standard versions (0.0.0, 1.0.0): Use as base for bump
+    - Unusual versions (e.g., 3.5.2): Warn and require confirmation
+    - Force flag: Skip validation and use PSD1 version
+
+.PARAMETER currentVersion
+    The current version from PSD1 manifest
+
+.PARAMETER forceFirstRelease
+    Force flag to skip validation
+
+.OUTPUTS
+    Hashtable
+    Returns validation result with baseVersion and warning message
+
+.EXAMPLE
+    Test-FirstReleaseVersion -currentVersion "1.0.0" -forceFirstRelease:$false
+    Returns: @{ baseVersion = "1.0.0"; warning = "" }
+
+.EXAMPLE
+    Test-FirstReleaseVersion -currentVersion "3.5.2" -forceFirstRelease:$false
+    Returns: @{ baseVersion = "3.5.2"; warning = "Unusual first release version detected..." }
+#>
+function Test-FirstReleaseVersion {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$currentVersion,
+        
+        [Parameter(Mandatory = $false)]
+        [bool]$forceFirstRelease = $false
+    )
+    
+    # Standard first release versions that don't require validation
+    $standardVersions = @('0.0.0', '1.0.0')
+    
+    if ($currentVersion -in $standardVersions) {
+        Write-Verbose "Standard first release version detected: $currentVersion"
+        return @{ 
+            baseVersion = $currentVersion
+            warning = ""
+        }
+    }
+    
+    if ($forceFirstRelease) {
+        Write-Verbose "Force flag enabled, using PSD1 version: $currentVersion"
+        return @{ 
+            baseVersion = $currentVersion
+            warning = "First release forced with version $currentVersion (migration mode)"
+        }
+    }
+    
+    # Unusual version detected - generate warning
+    $warningMessage = "Unusual first release version '$currentVersion' detected. Standard practice is to start with 0.0.0 or 1.0.0. Use -ForceFirstRelease to proceed anyway."
+    Write-Warning $warningMessage
+    
+    return @{ 
+        baseVersion = $currentVersion
+        warning = $warningMessage
+    }
+}
+
 #region Main Script Execution
 # =============================================================================
-# MAIN SCRIPT LOGIC
+# MAIN SCRIPT LOGIC - HYBRID FIRST RELEASE IMPLEMENTATION
 # =============================================================================
 
 try {
@@ -551,7 +629,10 @@ try {
             CurrentVersion = "0.0.0"
             BumpType = "none"
             NewVersion = "0.0.0"
-            Message = "Not on target branch for release"
+            LastReleaseTag = ""
+            TargetBranch = $TargetBranch
+            Suffix = ""
+            Warning = "Not on target branch for release"
         }
     }
 
@@ -592,22 +673,37 @@ try {
     
     # Find the latest release tag
     $latestReleaseTag = Get-LatestReleaseTag
+    $warningMessage = ""
+    
     if ([string]::IsNullOrWhiteSpace($latestReleaseTag)) {
-        Write-Verbose "No previous release tags found, this will be the first release"
-        Write-Host "🎉 No previous releases found - this will be the first release!"
+        Write-Verbose "No previous release tags found, implementing hybrid first release logic"
+        Write-Host "🎉 No previous releases found - implementing first release logic!"
         
-        # For first release, start with 0.0.0 and apply appropriate bump
+        # Validate first release version (Hybrid Approach)
+        $firstReleaseValidation = Test-FirstReleaseVersion -currentVersion $currentVersion -forceFirstRelease $ForceFirstRelease.IsPresent
+        $baseVersion = $firstReleaseValidation.baseVersion
+        $warningMessage = $firstReleaseValidation.warning
+        
+        # If there's a warning and no force flag, we should fail unless confirmed
+        if ($warningMessage -and -not $ForceFirstRelease) {
+            throw $warningMessage
+        }
+        
+        # Analyze git history to determine bump type
         $bumpResult = Get-ReleaseVersionBumpType -lastReleaseTag "" -targetBranch $TargetBranch
         $bumpType = $bumpResult.bumpType
         $suffix = $bumpResult.suffix
         
-        # Calculate first version: start from 0.0.0 and apply bump
-        $newVersion = Bump-Version -currentVersion "0.0.0" -bumpType $bumpType -suffix $suffix
+        # Calculate new version using PSD1 version as base (HYBRID APPROACH)
+        $newVersion = Bump-Version -currentVersion $baseVersion -bumpType $bumpType -suffix $suffix
+        
+        Write-Host "📦 First release calculated from PSD1 base version: $baseVersion → $newVersion"
+        
     } else {
         Write-Verbose "Latest release tag found: '$latestReleaseTag'"
         Write-Host "📋 Analyzing changes since last release: $latestReleaseTag"
         
-        # Analyze changes since last release
+        # Analyze changes since last release (normal behavior)
         $bumpResult = Get-ReleaseVersionBumpType -lastReleaseTag $latestReleaseTag -targetBranch $TargetBranch
         $bumpType = $bumpResult.bumpType
         $suffix = $bumpResult.suffix
@@ -627,7 +723,10 @@ try {
     if ($latestReleaseTag) {
         Write-Host "   Since release: $latestReleaseTag"
     } else {
-        Write-Host "   Since: Repository start (first release)"
+        Write-Host "   Since: Repository start (first release using hybrid logic)"
+    }
+    if ($warningMessage) {
+        Write-Host "   ⚠️ Warning: $warningMessage"
     }
     
     # Return structured object for GitHub Actions consumption
@@ -638,18 +737,20 @@ try {
         LastReleaseTag = $latestReleaseTag
         TargetBranch = $TargetBranch
         Suffix = $suffix
+        Warning = $warningMessage
     }
 }
 catch {
     Write-Error "Failed to determine next version: $($_.Exception.Message)"
-    # Return empty object on error
+    # Return object with error information
     return [PSCustomObject]@{
         CurrentVersion = ""
-        BumpType = ""
+        BumpType = "none"
         NewVersion = ""
         LastReleaseTag = ""
-        TargetBranch = ""
+        TargetBranch = $TargetBranch
         Suffix = ""
+        Warning = ""
         Error = $_.Exception.Message
     }
     exit 1
