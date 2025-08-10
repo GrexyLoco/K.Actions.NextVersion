@@ -125,6 +125,17 @@ function Get-NextSemanticVersion {
         $result = Get-NextSemanticVersion -ManifestPath ".\Module.psd1"
         if ($result.IsFirstRelease) {
             Write-Host "This is a first release: $($result.NewVersion)"
+                # Initialisiere $result mit allen erwarteten Properties
+                $result = [PSCustomObject]@{
+                    CurrentVersion = $currentVersionString
+                    BumpType = $null
+                    NewVersion = $null
+                    LastReleaseTag = $latestTag
+                    IsFirstRelease = $true
+                    Error = $null
+                    Instructions = $null
+                    GitContext = @{}
+                }
         }
     #>
     [CmdletBinding()]
