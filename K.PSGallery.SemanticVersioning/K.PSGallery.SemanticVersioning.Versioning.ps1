@@ -1,3 +1,19 @@
+# Konsistenzprüfung auslagern
+function Handle-ConsistencyCheck {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CurrentVersion,
+        [Parameter(Mandatory = $true)]
+        [string]$LatestTag,
+        [Parameter(Mandatory = $false)]
+        [switch]$ForceVersionMismatch
+    )
+    $consistencyResult = Test-PSD1TagConsistency -PSD1Version $CurrentVersion -LatestTag $LatestTag -ForceVersionMismatch:$ForceVersionMismatch
+    if ($consistencyResult.RequiresAction) {
+        return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -LastReleaseTag $LatestTag -IsFirstRelease $false -Error $consistencyResult.Error -Instructions $consistencyResult.Instructions -GitContext $consistencyResult.Context
+    }
+    return $null
+}
 # Hilfsfunktion: Manifest-Handling
 
 # Generische Ergebnisobjekt-Fabrik für Versioning
@@ -70,49 +86,38 @@ function Test-PSD1TagConsistency {
         [switch]$ForceVersionMismatch
     )
     if ([string]::IsNullOrEmpty($LatestTag)) {
-        return @{ RequiresAction = $false }
+        return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error $null -Instructions $null -GitContext @{ Consistency = "No tag found" }
     }
     try {
         $psd1Ver = [Version]::Parse($PSD1Version)
         $tagVer = [Version]::Parse(($LatestTag -replace '^v', ''))
-    }
-    catch {
-        return @{ RequiresAction = $true; Error = "Invalid version format in PSD1 or tag."; Instructions = "Check ModuleVersion and tag format."; Context = @{} }
+    } catch {
+        return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error "Invalid version format in PSD1 or tag." -Instructions "Check ModuleVersion and tag format." -GitContext @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
     }
     if ($psd1Ver -lt $tagVer -and -not $ForceVersionMismatch) {
-        return @{
-            RequiresAction = $true
-            Error          = "PSD1-Version ($PSD1Version) ist älter als der neueste Tag ($LatestTag)."
-            Instructions   = @{
-                Message  = "Bitte gleiche die Versionen ab."
-                Optionen = @(
-                    "Option 1: Setze ModuleVersion in der PSD1 auf $LatestTag",
-                    "Option 2: Lösche/ändere die Tags falls gewollt",
-                    "Option 3: Nutze -ForceVersionMismatch, um absichtlich rückwärts zu gehen (nicht empfohlen)"
-                )
-            }
-            Context        = @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
-        }
+        return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error "PSD1-Version ($PSD1Version) ist älter als der neueste Tag ($LatestTag)." -Instructions @{
+            Message  = "Bitte gleiche die Versionen ab."
+            Optionen = @(
+                "Option 1: Setze ModuleVersion in der PSD1 auf $LatestTag",
+                "Option 2: Lösche/ändere die Tags falls gewollt",
+                "Option 3: Nutze -ForceVersionMismatch, um absichtlich rückwärts zu gehen (nicht empfohlen)"
+            )
+        } -GitContext @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
     }
     if ($psd1Ver -gt $tagVer -and -not $ForceVersionMismatch) {
-        return @{
-            RequiresAction = $true
-            Error          = "PSD1-Version ($PSD1Version) ist höher als der neueste Tag ($LatestTag)."
-            Instructions   = @{
-                Message  = "Großer Versionssprung erkannt. Prüfe, ob dies gewollt ist."
-                Optionen = @(
-                    "Option 1: Setze ModuleVersion auf $LatestTag für sequenzielle Releases",
-                    "Option 2: Nutze -ForceVersionMismatch für absichtlichen Sprung"
-                )
-            }
-            Context        = @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
-        }
+        return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error "PSD1-Version ($PSD1Version) ist höher als der neueste Tag ($LatestTag)." -Instructions @{
+            Message  = "Großer Versionssprung erkannt. Prüfe, ob dies gewollt ist."
+            Optionen = @(
+                "Option 1: Setze ModuleVersion auf $LatestTag für sequenzielle Releases",
+                "Option 2: Nutze -ForceVersionMismatch für absichtlichen Sprung"
+            )
+        } -GitContext @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
     }
     if ($psd1Ver -eq $tagVer) {
         # Warnung, falls PSD1-Version identisch mit Tag (doppelte Releases vermeiden)
-        return @{ RequiresAction = $false }
+        return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error $null -Instructions $null -GitContext @{ Consistency = "PSD1-Version und Tag identisch" }
     }
-    return @{ RequiresAction = $false }
+    return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error $null -Instructions $null -GitContext @{ Consistency = "No action required" }
 }
 
 function Get-NextSemanticVersion {
@@ -175,11 +180,11 @@ function Get-NextSemanticVersion {
         $latestTag = Get-LatestReleaseTag
         $isFirstRelease = $null -eq $latestTag
 
-        # NEU: Validierung bei existierenden Tags
+        # Konsistenzprüfung ausgelagert
         if (-not $isFirstRelease) {
             $consistencyResult = Test-PSD1TagConsistency -PSD1Version $currentVersionString -LatestTag $latestTag -ForceVersionMismatch:$ForceFirstRelease
-            if ($consistencyResult.RequiresAction) {
-                return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType "none" -NewVersion $currentVersionString -LastReleaseTag $latestTag -IsFirstRelease $false -Error $consistencyResult.Error -Instructions $consistencyResult.Instructions -GitContext $consistencyResult.Context
+            if ($consistencyResult.Error) {
+                return $consistencyResult
             }
         }
 
