@@ -53,7 +53,11 @@ runs:
     - id: run-script
       shell: pwsh
       run: |
-        $result = & "$env:GITHUB_ACTION_PATH/Get-NextVersion.ps1" `
+        # Import the K.PSGallery.SemanticVersioning module
+        Import-Module "$env:GITHUB_ACTION_PATH/K.PSGallery.SemanticVersioning" -Force
+        
+        # Call the main function with parameters
+        $result = Get-NextSemanticVersion `
           -ManifestPath "${{ inputs.manifestPath }}" `
           -BranchName "${{ inputs.branchName }}" `
           -TargetBranch "${{ inputs.targetBranch }}" `
