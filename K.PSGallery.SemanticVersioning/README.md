@@ -114,11 +114,46 @@ Validates first release versions and provides structured guidance.
 
 ## 🔄 First Release Logic
 
-The module uses **hybrid first release logic** for repositories without existing tags:
+The module uses **hybrid first release logic** for repositories without existing Git tags:
+
+## 🆕 Repository ohne Tags (Erste Nutzung)
+
+Wenn noch keine Git-Tags existieren, analysiert das Modul die **komplette Repository-Historie**:
+
+### 1. **PSD1 Version Validation**
+- **Standard Versionen** (`0.0.0`, `1.0.0`): ✅ Automatisch verarbeitet
+- **Ungewöhnliche Versionen** (`3.5.2`, etc.): ⚠️ Benötigt Bestätigung oder `-ForceFirstRelease`
+
+### 2. **Komplette Git-History Analyse**
+```powershell
+# Analysiert ALLE Commits im Repository (nicht nur seit letztem Tag)
+$commits = git log --oneline --all
+
+# Sucht nach Keywords in Commit-Messages:
+# "BREAKING|MAJOR|breaking change" → major bump
+# "FEATURE|MINOR|feat:|feature:"   → minor bump
+# Default                          → patch bump
+```
+
+### 3. **Branch Pattern Detection**
+```powershell
+# Parallel zur Commit-Analyse:
+# feature/ oder feat/    → minor bump
+# major/                → major bump  
+# bugfix/ oder fix/     → patch bump
+# main/master           → patch bump (default)
+```
+
+### 4. **Höchste Priorität gewinnt**
+Das Modul kombiniert beide Analysen und wählt den **höheren Bump-Type**:
+```powershell
+$finalBumpType = Get-HigherBumpType -BumpType1 $gitBumpType -BumpType2 $branchBumpType
+# major > minor > patch
+```
 
 ### Standard Versions (Automatic)
-- `0.0.0` → Uses as base, applies Git history analysis
-- `1.0.0` → Uses as base, applies Git history analysis
+- `0.0.0` → Uses as base, applies full Git history analysis
+- `1.0.0` → Uses as base, applies full Git history analysis
 
 ### Unusual Versions (Guidance Required)
 For versions like `3.5.2`, the module provides structured guidance:
@@ -138,6 +173,35 @@ Option 2 - Project Migration (For existing projects):
    
 Option 3 - Reset to Standard Version:
    • Update .psd1 to ModuleVersion = '1.0.0'
+```
+
+### 🎯 Beispiele für Repository ohne Tags
+
+#### **Beispiel 1: Neues Projekt**
+```yaml
+Repository: Frisches Projekt, keine Tags
+PSD1: ModuleVersion = '1.0.0'
+Branch: feature/authentication
+Commits: "Add OAuth2 support", "Implement JWT tokens"
+→ Result: 1.0.0 + minor bump = 1.1.0
+```
+
+#### **Beispiel 2: Branch + Commit Keywords**
+```yaml
+Repository: Keine Tags vorhanden
+PSD1: ModuleVersion = '0.0.0'  
+Branch: bugfix/security-fix
+Commits: "BREAKING: Remove deprecated API"
+→ Result: 0.0.0 + major bump = 1.0.0 (BREAKING gewinnt über bugfix/)
+```
+
+#### **Beispiel 3: Migration mit Force**
+```yaml
+Repository: Bestehender Code, keine Tags
+PSD1: ModuleVersion = '2.3.1'
+Branch: main
+Flag: -ForceFirstRelease
+→ Result: 2.3.1 + patch bump = 2.3.2
 ```
 
 ## 🎯 GitHub Actions Integration
