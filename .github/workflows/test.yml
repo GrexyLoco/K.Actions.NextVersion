@@ -6,8 +6,104 @@ on:
   pull_request:
     branches: [ main, develop ]
   workflow_dispatch:
+  workflow_call:  # 🚨 Allow this workflow to be called by release.yml
 
 jobs:
+  pester-tests:
+    name: 🧪 PowerShell Pester Tests
+    runs-on: windows-latest
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup PowerShell
+        shell: pwsh
+        run: |
+          # Install Pester module if not available
+          if (-not (Get-Module -ListAvailable -Name Pester)) {
+            Install-Module -Name Pester -Scope CurrentUser -Force -SkipPublisherCheck
+          }
+          
+          # Show PowerShell and Pester versions
+          Write-Host "💡 PowerShell Version: $($PSVersionTable.PSVersion)" -ForegroundColor Green
+          Write-Host "💡 Pester Version: $((Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1).Version)" -ForegroundColor Green
+
+      - name: 🧪 Run Pester Tests
+        shell: pwsh
+        run: |
+          # Import Pester
+          Import-Module Pester -Force
+          
+          # Configure Pester
+          $pesterConfig = New-PesterConfiguration
+          $pesterConfig.Run.Path = './K.PSGallery.SemanticVersioning/Tests'
+          $pesterConfig.Run.PassThru = $true
+          $pesterConfig.Output.Verbosity = 'Detailed'
+          $pesterConfig.TestResult.Enabled = $true
+          $pesterConfig.TestResult.OutputFormat = 'NUnitXml'
+          $pesterConfig.TestResult.OutputPath = './TestResults.xml'
+          $pesterConfig.CodeCoverage.Enabled = $false  # Disable for faster execution
+          
+          # Run tests
+          Write-Host "🚀 Starting Pester Tests..." -ForegroundColor Yellow
+          $testResults = Invoke-Pester -Configuration $pesterConfig
+          
+          # Create summary
+          Write-Host "📊 Test Summary:" -ForegroundColor Cyan
+          Write-Host "  Total Tests: $($testResults.TotalCount)" -ForegroundColor White
+          Write-Host "  Passed: $($testResults.PassedCount)" -ForegroundColor Green
+          Write-Host "  Failed: $($testResults.FailedCount)" -ForegroundColor Red
+          Write-Host "  Skipped: $($testResults.SkippedCount)" -ForegroundColor Yellow
+          
+          # Export results for GitHub
+          $env:PESTER_TOTAL = $testResults.TotalCount
+          $env:PESTER_PASSED = $testResults.PassedCount
+          $env:PESTER_FAILED = $testResults.FailedCount
+          $env:PESTER_SKIPPED = $testResults.SkippedCount
+          
+          # Fail if tests failed
+          if ($testResults.FailedCount -gt 0) {
+            Write-Host "❌ PESTER TESTS FAILED!" -ForegroundColor Red
+            exit 1
+          } else {
+            Write-Host "✅ ALL PESTER TESTS PASSED!" -ForegroundColor Green
+          }
+
+      - name: 📊 Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pester-test-results
+          path: TestResults.xml
+
+      - name: 📋 Create Test Summary
+        if: always()
+        shell: pwsh
+        run: |
+          # Create GitHub Step Summary
+          @"
+          ## 🧪 Pester Test Results
+          
+          | Metric | Count | Status |
+          |--------|--------|--------|
+          | **Total Tests** | $env:PESTER_TOTAL | 📊 |
+          | **Passed** | $env:PESTER_PASSED | ✅ |
+          | **Failed** | $env:PESTER_FAILED | $(if ([int]$env:PESTER_FAILED -eq 0) { '✅' } else { '❌' }) |
+          | **Skipped** | $env:PESTER_SKIPPED | ⏭️ |
+          
+          ### 📈 Success Rate
+          $(if ([int]$env:PESTER_FAILED -eq 0) {
+            "🎉 **100% SUCCESS** - All tests passed!"
+          } else {
+            $successRate = [math]::Round(([int]$env:PESTER_PASSED / [int]$env:PESTER_TOTAL) * 100, 1)
+            "⚠️ **$successRate% SUCCESS** - $env:PESTER_FAILED test(s) failed"
+          })
+          
+          ### 🔗 Test Artifacts
+          - 📄 [Test Results XML](../artifacts/pester-test-results)
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+
   test-versioning:
     name: 🔄 Test Version Detection
     runs-on: ubuntu-latest
@@ -105,7 +201,7 @@ jobs:
   integration-test:
     name: 🔗 Integration Test
     runs-on: ubuntu-latest
-    needs: [test-versioning, test-breaking-changes, test-auto-discovery]
+    needs: [pester-tests, test-versioning, test-breaking-changes, test-auto-discovery]
     
     steps:
       - name: 📥 Checkout Repository
@@ -121,22 +217,36 @@ jobs:
 
       - name: 📋 Display Complete Results
         run: |
-          echo "## 🎯 K.Actions.NextVersion Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎯 K.Actions.NextVersion Test Suite Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Integration Test Results" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Current Version | \`${{ steps.integration.outputs.currentVersion }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Bump Type | \`${{ steps.integration.outputs.bumpType }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| New Version | \`${{ steps.integration.outputs.newVersion }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Target Branch | \`${{ steps.integration.outputs.targetBranch }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Suffix | \`${{ steps.integration.outputs.suffix }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Warning | \`${{ steps.integration.outputs.warning }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Action Required | \`${{ steps.integration.outputs.actionRequired }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | \`${{ github.event.head_commit.message || 'N/A' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **All tests passed successfully!**" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏆 Test Suite Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Pester Tests**: Unit tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Version Detection**: Branch patterns working" >> $GITHUB_STEP_SUMMARY  
+          echo "- ✅ **Breaking Changes**: Override detection working" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Auto-Discovery**: Manifest discovery working" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ **Integration**: End-to-end testing passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🎉 **All test suites passed successfully!**" >> $GITHUB_STEP_SUMMARY
 
       - name: 🎉 Success Notification
         run: |
-          echo "🎉 ALL TESTS PASSED!"
+          echo "🎉 COMPLETE TEST SUITE PASSED!"
+          echo "✅ Pester unit tests passed"
           echo "✅ Version detection working correctly"
           echo "✅ Breaking change detection working correctly" 
           echo "✅ Auto-discovery working correctly"
           echo "✅ Integration test completed successfully"
+          echo "🚀 K.Actions.NextVersion is ready for production!"

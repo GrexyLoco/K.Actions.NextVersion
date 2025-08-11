@@ -9,9 +9,16 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 🧪 First run ALL tests - Release ONLY if tests pass!
+  run-tests:
+    name: 🧪 Run Test Suite
+    uses: ./.github/workflows/test.yml
+    
+  # 📦 Release job depends on successful tests
   version-and-release:
     name: 📦 Version & Release
     runs-on: ubuntu-latest
+    needs: run-tests  # 🚨 CRITICAL: Release only after successful tests!
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     
     steps:
@@ -28,16 +35,27 @@ jobs:
           branchName: ${{ github.ref_name }}
           commitMessage: ${{ github.event.head_commit.message }}
 
-      - name: 📋 Version Information
+      - name: 📋 Release Summary
         run: |
-          echo "## 🎯 Release Information" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 K.Actions.NextVersion Release Pipeline" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Quality Gates Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- 🧪 **Pester Tests**: All unit tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔄 **Version Detection**: Branch pattern tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "- 💥 **Breaking Changes**: Override detection tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔎 **Auto-Discovery**: Manifest discovery tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔗 **Integration**: End-to-end tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Release Information" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Previous Version | \`${{ steps.version.outputs.currentVersion }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Bump Type | \`${{ steps.version.outputs.bumpType }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| New Version | \`${{ steps.version.outputs.newVersion }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Target Branch | \`${{ steps.version.outputs.targetBranch }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Suffix | \`${{ steps.version.outputs.suffix }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.event.head_commit.message }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: 🏷️ Create Git Tag

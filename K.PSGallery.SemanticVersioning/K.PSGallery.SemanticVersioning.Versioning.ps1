@@ -56,7 +56,23 @@ function New-VersionResultObject {
         $Instructions = $null,
 
         [Parameter(Mandatory = $false)]
-        $GitContext = @{}
+        $GitContext = @{},
+
+        # GitHub Action compatibility properties
+        [Parameter(Mandatory = $false)]
+        [string]$TargetBranch = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Suffix = "",
+
+        [Parameter(Mandatory = $false)]
+        [string]$Warning = "",
+
+        [Parameter(Mandatory = $false)]
+        [bool]$ActionRequired = $false,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ActionInstructions = ""
     )
     return [PSCustomObject]@{
         CurrentVersion = $CurrentVersion
@@ -67,6 +83,12 @@ function New-VersionResultObject {
         Error          = $Error
         Instructions   = $Instructions
         GitContext     = $GitContext
+        # GitHub Action compatibility properties
+        TargetBranch = $TargetBranch
+        Suffix = $Suffix
+        Warning = $Warning
+        ActionRequired = $ActionRequired
+        ActionInstructions = $ActionInstructions
     }
 }
 
@@ -82,9 +104,21 @@ function New-SemVerErrorResult {
         $Instructions = $null,
         
         [Parameter(Mandatory = $false)]
-        $GitContext = @{}
+        $GitContext = @{},
+        
+        [Parameter(Mandatory = $false)]
+        [string]$TargetBranch = "main"
     )
-    return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -Error $ErrorMessage -Instructions $Instructions -GitContext $GitContext
+    
+    $actionInstructions = if ($Instructions -and $Instructions.Message) { 
+        $Instructions.Message 
+    } elseif ($Instructions -is [string]) { 
+        $Instructions 
+    } else { 
+        "" 
+    }
+    
+    return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -Error $ErrorMessage -Instructions $Instructions -GitContext $GitContext -TargetBranch $TargetBranch -Suffix "" -Warning $ErrorMessage -ActionRequired $true -ActionInstructions $actionInstructions
 }
 
 function New-SemVerSuccessResult {
@@ -191,7 +225,8 @@ function Get-NextSemanticVersion {
         # Manifest-Handling ausgelagert
         $manifestResult = Get-ValidManifestPath -ManifestPath $ManifestPath
         if (-not $manifestResult.Success) {
-            return New-SemVerErrorResult -ErrorMessage $manifestResult.Error -Instructions "Please ensure that a valid manifest exists."
+            $targetBranchForError = if ([string]::IsNullOrEmpty($TargetBranch)) { "main" } else { $TargetBranch }
+            return New-SemVerErrorResult -ErrorMessage $manifestResult.Error -Instructions "Please ensure that a valid manifest exists." -TargetBranch $targetBranchForError
         }
         $ManifestPath = $manifestResult.Value
         $manifestContent = Get-Content $ManifestPath -Raw
@@ -222,7 +257,8 @@ function Get-NextSemanticVersion {
 
             $firstReleaseResult = Test-FirstReleaseVersion -CurrentVersion $currentVersionString -BranchName $BranchName -ForceFirstRelease:$ForceFirstRelease
             if ($firstReleaseResult.Error) {
-                return New-SemVerErrorResult -ErrorMessage $firstReleaseResult.Error -CurrentVersion $currentVersionString -Instructions $firstReleaseResult.Instructions
+                $targetBranchForError = if ([string]::IsNullOrEmpty($TargetBranch)) { "main" } else { $TargetBranch }
+                return New-SemVerErrorResult -ErrorMessage $firstReleaseResult.Error -CurrentVersion $currentVersionString -Instructions $firstReleaseResult.Instructions -TargetBranch $targetBranchForError
             }
             $result.BumpType = $firstReleaseResult.BumpType
             $result.NewVersion = $firstReleaseResult.NewVersion
@@ -268,13 +304,34 @@ function Get-NextSemanticVersion {
                 }
             }
         }
+        
+        # Set GitHub Action compatibility properties
+        $result.TargetBranch = if ([string]::IsNullOrEmpty($TargetBranch)) { 
+            if ($BranchName -eq "main" -or $BranchName -eq "master") { $BranchName } else { "main" }
+        } else { $TargetBranch }
+        
+        $result.Suffix = if ($result.GitContext.PreReleaseSuffix) { $result.GitContext.PreReleaseSuffix } else { "" }
+        
+        $result.Warning = if ($result.Error) { $result.Error } else { "" }
+        
+        $result.ActionRequired = if ($result.Error -and $result.Instructions) { $true } else { $false }
+        
+        $result.ActionInstructions = if ($result.Instructions -and $result.Instructions.Message) { 
+            $result.Instructions.Message 
+        } elseif ($result.Instructions -is [string]) { 
+            $result.Instructions 
+        } else { 
+            "" 
+        }
+        
         Write-SafeTaskSuccessLog -Message "Version calculation completed successfully" -Context "Current: $($result.CurrentVersion) → New: $($result.NewVersion) (Bump: $($result.BumpType))"
         return $result
     }
     catch {
         Write-SafeErrorLog -Message "Failed to calculate next semantic version" -Context $_.Exception.Message
         
-        return New-SemVerErrorResult -ErrorMessage $_.Exception.Message -CurrentVersion $currentVersionString
+        $targetBranchForError = if ([string]::IsNullOrEmpty($TargetBranch)) { "main" } else { $TargetBranch }
+        return New-SemVerErrorResult -ErrorMessage $_.Exception.Message -CurrentVersion $currentVersionString -TargetBranch $targetBranchForError
     }
 }
     
