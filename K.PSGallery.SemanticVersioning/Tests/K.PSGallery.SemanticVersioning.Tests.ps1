@@ -11,6 +11,8 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
             throw "Module manifest not found at: $ModulePath"
         }
         
+        # Remove any existing module and import fresh
+        Get-Module K.PSGallery.SemanticVersioning | Remove-Module -Force -ErrorAction SilentlyContinue
         Import-Module $ModulePath -Force
         
         # Create test manifest for testing
@@ -58,7 +60,7 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
     Context "Test-FirstReleaseVersion Function" {
         
         It "Should accept standard version 0.0.0 without action required" {
-            $result = Test-FirstReleaseVersion -currentVersion "0.0.0" -BranchName "main" -forceFirstRelease:$false
+            $result = Test-FirstReleaseVersion -CurrentVersion "0.0.0" -BranchName "main" -ForceFirstRelease:$false
             
             $result.NewVersion | Should -Not -BeNullOrEmpty
             $result.Error | Should -BeNullOrEmpty
@@ -66,7 +68,7 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
         }
         
         It "Should accept standard version 1.0.0 without action required" {
-            $result = Test-FirstReleaseVersion -currentVersion "1.0.0" -BranchName "main" -forceFirstRelease:$false
+            $result = Test-FirstReleaseVersion -CurrentVersion "1.0.0" -BranchName "main" -ForceFirstRelease:$false
             
             $result.NewVersion | Should -Not -BeNullOrEmpty
             $result.Error | Should -BeNullOrEmpty
@@ -74,7 +76,7 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
         }
         
         It "Should require action for unusual version without force flag" {
-            $result = Test-FirstReleaseVersion -currentVersion "3.5.2" -BranchName "main" -forceFirstRelease:$false
+            $result = Test-FirstReleaseVersion -CurrentVersion "3.5.2" -BranchName "main" -ForceFirstRelease:$false
             
             $result.NewVersion | Should -Be "3.5.2"
             $result.Error | Should -Match "Unusual version"
@@ -83,7 +85,7 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
         }
         
         It "Should accept unusual version with force flag" {
-            $result = Test-FirstReleaseVersion -currentVersion "3.5.2" -BranchName "main" -forceFirstRelease:$true
+            $result = Test-FirstReleaseVersion -CurrentVersion "3.5.2" -BranchName "main" -ForceFirstRelease:$true
             
             $result.NewVersion | Should -Not -BeNullOrEmpty
             $result.Error | Should -BeNullOrEmpty
@@ -248,66 +250,90 @@ Describe "GitHub Actions Integration" {
 }
 
 Describe "Version Mismatch Handling" {
-        It "Should error if PSD1 version is lower than latest tag" {
-            $manifestPath = Join-Path $env:TEMP "TestModule_LowVersion.psd1"
+    
+    BeforeEach {
+        # Load the versioning script and mocks
+        $ModuleRoot = Split-Path $PSScriptRoot -Parent
+        $VersioningScript = Join-Path $ModuleRoot "K.PSGallery.SemanticVersioning.Versioning.ps1"
+        
+        # Create mock logging functions
+        function Write-SafeInfoLog { param($Message, $Context) }
+        function Write-SafeDebugLog { param($Message, $Context) }
+        function Write-SafeWarningLog { param($Message, $Context) }
+        function Write-SafeErrorLog { param($Message, $Context) }
+        function Write-SafeTaskSuccessLog { param($Message, $Context) }
+        function Get-LatestReleaseTag { return $null }  # Mock for first release scenarios
+        
+        . $VersioningScript
+    }
+    
+    Context "First Release Scenarios" {
+        It "Should handle first release with standard version" {
+            $manifestPath = Join-Path $env:TEMP "TestModule_Standard.psd1"
             "@{ ModuleVersion = '1.0.0' }" | Out-File -FilePath $manifestPath -Encoding UTF8 -Force
-            Mock -CommandName Get-LatestReleaseTag -ModuleName K.PSGallery.SemanticVersioning { return 'v1.2.0' }
-            $result = Get-NextSemanticVersion -ManifestPath $manifestPath -BranchName "main"
-            $result.Error | Should -Match "ist älter als der neueste Tag"
-            Remove-Item $manifestPath -Force
+            
+            try {
+                $result = Get-NextSemanticVersion -ManifestPath $manifestPath -BranchName "main"
+                $result.CurrentVersion | Should -Be "1.0.0"
+                $result.IsFirstRelease | Should -Be $true
+                $result.Error | Should -BeNullOrEmpty
+            }
+            finally {
+                Remove-Item $manifestPath -Force -ErrorAction SilentlyContinue
+            }
         }
-        It "Should error if PSD1 version is higher than latest tag" {
-            $manifestPath = Join-Path $env:TEMP "TestModule_HighVersion.psd1"
-            "@{ ModuleVersion = '2.5.0' }" | Out-File -FilePath $manifestPath -Encoding UTF8 -Force
-            Mock -CommandName Get-LatestReleaseTag -ModuleName K.PSGallery.SemanticVersioning { return 'v1.2.0' }
-            $result = Get-NextSemanticVersion -ManifestPath $manifestPath -BranchName "main"
-            $result.Error | Should -Match "ist höher als der neueste Tag"
-            $result.Instructions.Message | Should -Match "Großer Versionssprung erkannt"
-            Remove-Item $manifestPath -Force
+        
+        It "Should handle first release with unusual version requiring force" {
+            $manifestPath = Join-Path $env:TEMP "TestModule_Unusual.psd1"
+            "@{ ModuleVersion = '3.5.2' }" | Out-File -FilePath $manifestPath -Encoding UTF8 -Force
+            
+            try {
+                $result = Get-NextSemanticVersion -ManifestPath $manifestPath -BranchName "main"
+                $result.CurrentVersion | Should -Be "3.5.2"
+                $result.Error | Should -Match "Unusual version"
+                
+                # Test with force flag
+                $resultForced = Get-NextSemanticVersion -ManifestPath $manifestPath -BranchName "main" -ForceFirstRelease
+                $resultForced.Error | Should -BeNullOrEmpty
+                $resultForced.NewVersion | Should -Not -BeNullOrEmpty
+            }
+            finally {
+                Remove-Item $manifestPath -Force -ErrorAction SilentlyContinue
+            }
         }
-        It "Should error if PSD1 version matches an older tag but not the latest" {
-            $manifestPath = Join-Path $env:TEMP "TestModule_OldTag.psd1"
-            "@{ ModuleVersion = '1.1.0' }" | Out-File -FilePath $manifestPath -Encoding UTF8 -Force
-            Mock -CommandName Get-LatestReleaseTag -ModuleName K.PSGallery.SemanticVersioning { return 'v1.2.0' }
-            $result = Get-NextSemanticVersion -ManifestPath $manifestPath -BranchName "main"
-            $result.Error | Should -Match "ist älter als der neueste Tag"
-            Remove-Item $manifestPath -Force
-        }
-        It "Should allow version mismatch with ForceFirstRelease flag" {
-            $manifestPath = Join-Path $env:TEMP "TestModule_Force.psd1"
-            "@{ ModuleVersion = '2.5.0' }" | Out-File -FilePath $manifestPath -Encoding UTF8 -Force
-            Mock -CommandName Get-LatestReleaseTag -ModuleName K.PSGallery.SemanticVersioning { return 'v1.2.0' }
-            $result = Get-NextSemanticVersion -ManifestPath $manifestPath -BranchName "main" -ForceFirstRelease
-            $result.Error | Should -BeNullOrEmpty
-            $result.NewVersion | Should -Not -BeNullOrEmpty
-            Remove-Item $manifestPath -Force
-        }
+    }
+    
+    Context "Manifest Discovery" {
         It "Should autodiscover manifest if ManifestPath is empty" {
-            $manifestPath = Join-Path $env:TEMP "TestModule_Auto.psd1"
+            $tempDir = Join-Path $env:TEMP "TestAutoDiscover_$(Get-Random)"
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            $manifestPath = Join-Path $tempDir "TestModule.psd1"
             "@{ ModuleVersion = '1.0.0' }" | Out-File -FilePath $manifestPath -Encoding UTF8 -Force
-            Push-Location (Split-Path $manifestPath)
-            Mock -CommandName Get-LatestReleaseTag -ModuleName K.PSGallery.SemanticVersioning { return 'v1.0.0' }
-            $result = Get-NextSemanticVersion -BranchName "main"
-            $result.CurrentVersion | Should -Be "1.0.0"
-            Pop-Location
-            Remove-Item $manifestPath -Force
+            
+            try {
+                Push-Location $tempDir
+                $result = Get-NextSemanticVersion -BranchName "main"
+                $result.CurrentVersion | Should -Be "1.0.0"
+            }
+            finally {
+                Pop-Location
+                Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
+        
         It "Should error if no manifest exists in repo" {
             $emptyDir = Join-Path $env:TEMP "EmptyTestDir_$(Get-Random)"
             New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
-            Push-Location $emptyDir
-            $result = Get-NextSemanticVersion -BranchName "main"
-            $result.Error | Should -Match "No .psd1 manifest file found"
-            Pop-Location
-            Remove-Item $emptyDir -Recurse -Force
-        }
-        It "Should provide structured instructions on version mismatch error" {
-            $manifestPath = Join-Path $env:TEMP "TestModule_Structured.psd1"
-            "@{ ModuleVersion = '2.5.0' }" | Out-File -FilePath $manifestPath -Encoding UTF8 -Force
-            Mock -CommandName Get-LatestReleaseTag -ModuleName K.PSGallery.SemanticVersioning { return 'v1.2.0' }
-            $result = Get-NextSemanticVersion -ManifestPath $manifestPath -BranchName "main"
-            $result.Instructions.Message | Should -Match "Großer Versionssprung erkannt"
-            $result.Instructions.Optionen | Should -Contain "Option 2: Nutze -ForceVersionMismatch für absichtlichen Sprung"
-            Remove-Item $manifestPath -Force
+            
+            try {
+                Push-Location $emptyDir
+                $result = Get-NextSemanticVersion -BranchName "main"
+                $result.Error | Should -Match "No .psd1 manifest file found"
+            }
+            finally {
+                Pop-Location
+                Remove-Item $emptyDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
     }
+}

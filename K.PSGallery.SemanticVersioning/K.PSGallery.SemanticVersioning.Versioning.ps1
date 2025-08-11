@@ -1,4 +1,3 @@
-# First Release Handling auslagern
 function Handle-FirstRelease {
     param(
         [Parameter(Mandatory = $true)]
@@ -15,7 +14,7 @@ function Handle-FirstRelease {
     }
     return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType $firstReleaseResult.BumpType -NewVersion $firstReleaseResult.NewVersion -IsFirstRelease $true -GitContext $firstReleaseResult.GitContext
 }
-# Konsistenzprüfung auslagern
+
 function Handle-ConsistencyCheck {
     param(
         [Parameter(Mandatory = $true)]
@@ -31,13 +30,10 @@ function Handle-ConsistencyCheck {
     }
     return $null
 }
-# Hilfsfunktion: Manifest-Handling
 
-# Generische Ergebnisobjekt-Fabrik für Versioning
 function New-VersionResultObject {
     param(
         [Parameter(Mandatory = $false)]
-        [ValidatePattern('^\d+\.\d+\.\d+$')]
         [string]$CurrentVersion = $null,
 
         [Parameter(Mandatory = $false)]
@@ -45,14 +41,13 @@ function New-VersionResultObject {
         [string]$BumpType = "none",
 
         [Parameter(Mandatory = $false)]
-        [ValidatePattern('^\d+\.\d+\.\d+$')]
         [string]$NewVersion = $null,
 
         [Parameter(Mandatory = $false)]
         [string]$LastReleaseTag = $null,
 
         [Parameter(Mandatory = $false)]
-        [bool]$IsFirstRelease = $null,
+        [object]$IsFirstRelease = $null,
 
         [Parameter(Mandatory = $false)]
         [string]$Error = $null,
@@ -61,7 +56,6 @@ function New-VersionResultObject {
         $Instructions = $null,
 
         [Parameter(Mandatory = $false)]
-        [ValidateScript({ $_ -is [hashtable] })]
         $GitContext = @{}
     )
     return [PSCustomObject]@{
@@ -75,6 +69,47 @@ function New-VersionResultObject {
         GitContext     = $GitContext
     }
 }
+
+function New-SemVerErrorResult {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ErrorMessage,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$CurrentVersion = $null,
+        
+        [Parameter(Mandatory = $false)]
+        $Instructions = $null,
+        
+        [Parameter(Mandatory = $false)]
+        $GitContext = @{}
+    )
+    return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -Error $ErrorMessage -Instructions $Instructions -GitContext $GitContext
+}
+
+function New-SemVerSuccessResult {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CurrentVersion,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$NewVersion,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$BumpType,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$LastReleaseTag = $null,
+        
+        [Parameter(Mandatory = $false)]
+        [bool]$IsFirstRelease = $false,
+        
+        [Parameter(Mandatory = $false)]
+        $GitContext = @{}
+    )
+    return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType $BumpType -NewVersion $NewVersion -LastReleaseTag $LastReleaseTag -IsFirstRelease $IsFirstRelease -GitContext $GitContext
+}
+
 function Get-ValidManifestPath {
     param (
         [string]$ManifestPath
@@ -93,9 +128,6 @@ function Get-ValidManifestPath {
     return @{ Success = $true; Value = $ManifestPath; Error = $null }
 }
 
-# Semantic Versioning Functions for K.PSGallery.SemanticVersioning
-# Core versioning logic, manifest processing, and version calculation
-
 function Test-PSD1TagConsistency {
     param (
         [string]$PSD1Version,
@@ -108,7 +140,8 @@ function Test-PSD1TagConsistency {
     try {
         $psd1Ver = [Version]::Parse($PSD1Version)
         $tagVer = [Version]::Parse(($LatestTag -replace '^v', ''))
-    } catch {
+    }
+    catch {
         return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error "Invalid version format in PSD1 or tag." -Instructions "Check ModuleVersion and tag format." -GitContext @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
     }
     if ($psd1Ver -lt $tagVer -and -not $ForceVersionMismatch) {
@@ -138,108 +171,39 @@ function Test-PSD1TagConsistency {
 }
 
 function Get-NextSemanticVersion {
-    <#
-    .SYNOPSIS
-        Calculates the next semantic version number based on branch naming conventions and git history analysis.
-
-    .DESCRIPTION
-        This function implements semantic versioning (SemVer) logic for PowerShell modules by analyzing
-        merged branches since the last release to determine the appropriate version bump type (major, minor, or patch).
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$ManifestPath,
         
-        For first releases (no existing tags), the function uses a hybrid approach:
-        - If PSD1 version is 0.0.0 or 1.0.0: Uses as base for version bump
-        - If PSD1 version is unusual (e.g., 3.5.2): Returns structured guidance with actionable instructions
-        - Analyzes git history since repository start to determine appropriate bump type
+        [Parameter(Mandatory = $false)]
+        [string]$BranchName = $env:GITHUB_REF_NAME,
         
-        The function follows these conventions:
-        - Major version bump: Triggered by 'major/' branch prefix or 'BREAKING'/'MAJOR' in commit message
-        - Minor version bump: Triggered by 'feature/' branch prefix or 'FEATURE'/'MINOR' in commit message
-        - Patch version bump: Triggered by 'bugfix/' or 'refactor/' branch prefixes, or as default fallback
+        [Parameter(Mandatory = $false)]
+        [string]$TargetBranch,
         
-        This is typically used in CI/CD pipelines to automatically determine version numbers for releases.
-
-    .PARAMETER ManifestPath
-        The absolute path to the PowerShell module manifest file (.psd1).
-        If not specified, automatically discovers the first .psd1 file in the current directory tree.
-        
-        Example: "C:\MyModule\MyModule.psd1"
-
-    .PARAMETER BranchName
-        The name of the Git branch being processed.
-        Defaults to the GITHUB_REF_NAME environment variable when running in GitHub Actions.
-        
-        Supported branch naming conventions:
-        - major/feature-name    → Major version bump (X.0.0)
-        - feature/feature-name  → Minor version bump (X.Y.0)
-        - bugfix/fix-name      → Patch version bump (X.Y.Z)
-        - refactor/refactor-name → Patch version bump (X.Y.Z)
-        - Any other pattern    → Patch version bump (X.Y.Z)
-
+        [Parameter(Mandatory = $false)]
+        [switch]$ForceFirstRelease
+    )
+    
     try {
         Write-SafeTaskSuccessLog -Message "Starting semantic version calculation"
 
         # Manifest-Handling ausgelagert
         $manifestResult = Get-ValidManifestPath -ManifestPath $ManifestPath
         if (-not $manifestResult.Success) {
-            return New-VersionResultObject -Error $manifestResult.Error -Instructions "Please ensure that a valid manifest exists."
+            return New-SemVerErrorResult -ErrorMessage $manifestResult.Error -Instructions "Please ensure that a valid manifest exists."
         }
         $ManifestPath = $manifestResult.Value
         $manifestContent = Get-Content $ManifestPath -Raw
-        if ($manifestContent -match "ModuleVersion\s*=\s*['\`"]([^'\"]+)['\`"]") {
-            $currentVersionString = $matches[1]
-        }
-        else {
-            Write-SafeErrorLog -Message "Could not find ModuleVersion in manifest file"
-            return New-VersionResultObject -Error "Could not find ModuleVersion in manifest file" -Instructions "Please check your manifest."
-        }
-
-        # Get latest release tag
-        $latestTag = Get-LatestReleaseTag
-        $isFirstRelease = $null -eq $latestTag
-
-        # Konsistenzprüfung ausgelagert
-        if (-not $isFirstRelease) {
-            $consistencyResult = Test-PSD1TagConsistency -PSD1Version $currentVersionString -LatestTag $latestTag -ForceVersionMismatch:$ForceFirstRelease
-            if ($consistencyResult.Error) {
-                return $consistencyResult
-            }
-        }
-
-        if ($isFirstRelease) {
-            Write-SafeInfoLog -Message "No existing release tags found - this is a first release"
-            return Handle-FirstRelease -CurrentVersion $currentVersionString -BranchName $BranchName -ForceFirstRelease:$ForceFirstRelease
-        }
-        else {
-            Write-SafeInfoLog -Message "Found existing release tag: $latestTag"
-            $bumpType = Get-ReleaseVersionBumpType -LastReleaseTag $latestTag -TargetBranch $TargetBranch
-            $branchBumpType = Get-VersionBumpType -BranchName $BranchName
-            $finalBumpType = Get-HigherBumpType -BumpType1 $bumpType -BumpType2 $branchBumpType
-            Write-SafeInfoLog -Message "Release-based bump: $bumpType, Branch-based bump: $branchBumpType, Final: $finalBumpType"
-            $newVersion = Step-Version -Version $currentVersionString -BumpType $finalBumpType
-            return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType $finalBumpType -NewVersion $newVersion.ToString() -LastReleaseTag $latestTag -IsFirstRelease $false -GitContext @{ ReleaseBumpType = $bumpType; BranchBumpType = $branchBumpType }
-        }
-        # ...kein separates $result mehr, immer direkt return
-    }
-    catch {
-        Write-SafeErrorLog -Message "Failed to calculate next semantic version" -Context $_.Exception.Message
-        return New-VersionResultObject -Error $_.Exception.Message
-    }
-    try {
-        Write-SafeTaskSuccessLog -Message "Starting semantic version calculation"
-
-        # Manifest-Handling ausgelagert
-        $manifestResult = Get-ValidManifestPath -ManifestPath $ManifestPath
-        if (-not $manifestResult.Success) {
-            return New-VersionResultObject -Error $manifestResult.Error -Instructions "Please ensure that a valid manifest exists."
-        }
-        $ManifestPath = $manifestResult.Value
-        $manifestContent = Get-Content $ManifestPath -Raw
-        if ($manifestContent -match "ModuleVersion\s*=\s*['\`"]([^'\`"]+)['\`"]") {
+        if ($manifestContent -match 'ModuleVersion\s*=\s*[''`"]([^''`"]+)[''`"]') {
             $currentVersionString = $matches[1]
         }
         else {
             throw "Could not find ModuleVersion in manifest file"
         }
+
+        # Initialize result object
+        $result = New-VersionResultObject -CurrentVersion $currentVersionString -LastReleaseTag $null -IsFirstRelease $false
 
         # Get latest release tag
         $latestTag = Get-LatestReleaseTag
@@ -248,8 +212,8 @@ function Get-NextSemanticVersion {
         # NEU: Validierung bei existierenden Tags
         if (-not $isFirstRelease) {
             $consistencyResult = Test-PSD1TagConsistency -PSD1Version $currentVersionString -LatestTag $latestTag -ForceVersionMismatch:$ForceFirstRelease
-            if ($consistencyResult.RequiresAction) {
-                return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType "none" -NewVersion $currentVersionString -LastReleaseTag $latestTag -IsFirstRelease $false -Error $consistencyResult.Error -Instructions $consistencyResult.Instructions -GitContext $consistencyResult.Context
+            if ($consistencyResult.Error) {
+                return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType "none" -NewVersion $currentVersionString -LastReleaseTag $latestTag -IsFirstRelease $false -Error $consistencyResult.Error -Instructions $consistencyResult.Instructions -GitContext $consistencyResult.GitContext
             }
         }
 
@@ -258,12 +222,11 @@ function Get-NextSemanticVersion {
 
             $firstReleaseResult = Test-FirstReleaseVersion -CurrentVersion $currentVersionString -BranchName $BranchName -ForceFirstRelease:$ForceFirstRelease
             if ($firstReleaseResult.Error) {
-                $result.Error = $firstReleaseResult.Error
-                $result.Instructions = $firstReleaseResult.Instructions
-                return $result
+                return New-SemVerErrorResult -ErrorMessage $firstReleaseResult.Error -CurrentVersion $currentVersionString -Instructions $firstReleaseResult.Instructions
             }
             $result.BumpType = $firstReleaseResult.BumpType
             $result.NewVersion = $firstReleaseResult.NewVersion
+            $result.IsFirstRelease = $true
             $result.GitContext = $firstReleaseResult.GitContext
         }
         else {
@@ -272,12 +235,37 @@ function Get-NextSemanticVersion {
             $branchBumpType = Get-VersionBumpType -BranchName $BranchName
             $finalBumpType = Get-HigherBumpType -BumpType1 $bumpType -BumpType2 $branchBumpType
             Write-SafeInfoLog -Message "Release-based bump: $bumpType, Branch-based bump: $branchBumpType, Final: $finalBumpType"
-            $newVersion = Step-Version -Version $currentVersionString -BumpType $finalBumpType
-            $result.BumpType = $finalBumpType
-            $result.NewVersion = $newVersion.ToString()
-            $result.GitContext = @{
-                ReleaseBumpType = $bumpType
-                BranchBumpType  = $branchBumpType
+            
+            # Calculate base version without suffix
+            $baseNewVersion = Step-Version -Version $currentVersionString -BumpType $finalBumpType
+            
+            # Check for pre-release suffix requirements
+            $suffixType = Get-PreReleaseSuffixType -BranchName $BranchName
+            if ($suffixType) {
+                Write-SafeInfoLog -Message "Pre-release suffix detected: $suffixType"
+                $buildNumber = Get-NextBuildNumber -SuffixType $suffixType -BaseVersion $baseNewVersion.ToString()
+                $finalVersion = Add-PreReleaseSuffix -Version $baseNewVersion.ToString() -SuffixType $suffixType -BuildNumber $buildNumber
+                
+                $result.BumpType = $finalBumpType
+                $result.NewVersion = $finalVersion
+                $result.LastReleaseTag = $latestTag
+                $result.GitContext = @{
+                    ReleaseBumpType = $bumpType
+                    BranchBumpType  = $branchBumpType
+                    PreReleaseSuffix = $suffixType
+                    BuildNumber = $buildNumber
+                    BaseVersion = $baseNewVersion.ToString()
+                }
+            }
+            else {
+                # Standard release without suffix
+                $result.BumpType = $finalBumpType
+                $result.NewVersion = $baseNewVersion.ToString()
+                $result.LastReleaseTag = $latestTag
+                $result.GitContext = @{
+                    ReleaseBumpType = $bumpType
+                    BranchBumpType  = $branchBumpType
+                }
             }
         }
         Write-SafeTaskSuccessLog -Message "Version calculation completed successfully" -Context "Current: $($result.CurrentVersion) → New: $($result.NewVersion) (Bump: $($result.BumpType))"
@@ -286,73 +274,74 @@ function Get-NextSemanticVersion {
     catch {
         Write-SafeErrorLog -Message "Failed to calculate next semantic version" -Context $_.Exception.Message
         
-    return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType "none" -NewVersion $currentVersionString -LastReleaseTag $latestTag -IsFirstRelease $false -Error $_.Exception.Message
+        return New-SemVerErrorResult -ErrorMessage $_.Exception.Message -CurrentVersion $currentVersionString
     }
 }
-
+    
 function Test-FirstReleaseVersion {
-    <#
-    .SYNOPSIS
-        Validates and calculates version for first releases with hybrid logic.
-    
-    .DESCRIPTION
-        Handles first release scenarios by analyzing PSD1 version and git history.
-        Provides structured guidance for unusual version numbers.
-    
-    .PARAMETER CurrentVersion
-        The current version from the PSD1 manifest.
-    
-    .PARAMETER BranchName
-        The current branch name for version bump calculation.
-    
-    .PARAMETER ForceFirstRelease
-        Force first release even with unusual PSD1 version.
-    
-    .OUTPUTS
-        PSCustomObject with BumpType, NewVersion, Error, Instructions, and GitContext.
-    #>
-    param (
+    param(
         [Parameter(Mandatory = $true)]
         [string]$CurrentVersion,
+
         [Parameter(Mandatory = $true)]
         [string]$BranchName,
+
         [Parameter(Mandatory = $false)]
         [switch]$ForceFirstRelease
     )
+
     Write-SafeInfoLog -Message "Analyzing first release version: $CurrentVersion"
-    # Parse version
+
     try {
         $version = [Version]::Parse($CurrentVersion)
-    } catch {
-        Write-SafeErrorLog -Message "Invalid version format in first release: $CurrentVersion"
-        return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -IsFirstRelease $true -Error "Invalid version format: $CurrentVersion"
     }
-    # Check for standard starting versions
+    catch {
+        Write-SafeErrorLog -Message "Invalid version format in first release: $CurrentVersion"
+        $rv = @{
+            CurrentVersion = $CurrentVersion
+            BumpType       = "none"
+            NewVersion     = $CurrentVersion
+            IsFirstRelease = $true
+            Error          = "Invalid version format: $CurrentVersion"
+        }
+        return New-VersionResultObject @rv
+    }
+
+    # Standard-Versionen 0.0.0 oder 1.0.0 erlauben
     $isStandardStart = ($version.ToString() -eq "0.0.0") -or ($version.ToString() -eq "1.0.0")
     if (-not $isStandardStart -and -not $ForceFirstRelease) {
         Write-SafeWarningLog -Message "Unusual PSD1 version detected for first release: $CurrentVersion"
-        return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -IsFirstRelease $true -Error "Unusual version for first release" -Instructions @{
-            Message         = "The PSD1 file contains an unusual version ($CurrentVersion) for a first release."
-            Recommendations = @(
-                "For new projects: Update PSD1 to ModuleVersion = '0.0.0' or '1.0.0'",
-                "For existing projects: Use -ForceFirstRelease to proceed with current version",
-                "For migrations: Consider if this should be tagged as v$CurrentVersion first"
-            )
-            NextSteps       = @(
-                "Option 1: Set ModuleVersion = '0.0.0' in PSD1, then re-run",
-                "Option 2: Use Get-NextSemanticVersion -ForceFirstRelease",
-                "Option 3: Manually tag current state: git tag v$CurrentVersion"
-            )
+        $rv = @{
+            CurrentVersion = $CurrentVersion
+            BumpType       = "none"
+            NewVersion     = $CurrentVersion
+            IsFirstRelease = $true
+            Error          = "Unusual version for first release"
+            Instructions   = @{
+                Message         = "The PSD1 file contains an unusual version ($CurrentVersion) for a first release."
+                Recommendations = @(
+                    "For new projects: Update PSD1 to ModuleVersion = '0.0.0' or '1.0.0'",
+                    "For existing projects: Use -ForceFirstRelease to proceed with current version",
+                    "For migrations: Consider if this should be tagged as v$CurrentVersion first"
+                )
+                NextSteps       = @(
+                    "Option 1: Set ModuleVersion = '0.0.0' in PSD1, then re-run",
+                    "Option 2: Use Get-NextSemanticVersion -ForceFirstRelease",
+                    "Option 3: Manually tag current state: git tag v$CurrentVersion"
+                )
+            }
         }
+        return New-VersionResultObject @rv
     }
-    # Analyze git history for appropriate bump type
+
     Write-SafeInfoLog -Message "Analyzing git history for version bump determination"
-    $gitBumpType = "patch"  # Default
+
+    # Standardmäßig Patch-Bump annehmen
+    $gitBumpType = "patch"
     try {
-        # Get all commits in repository
+        # Alle Commits holen
         $commits = & git log --oneline --all 2>$null
         if ($LASTEXITCODE -eq 0 -and $commits) {
-            # Analyze commit messages for keywords
             $commitText = $commits -join " "
             if ($commitText -match "BREAKING|MAJOR|breaking change") {
                 $gitBumpType = "major"
@@ -363,67 +352,81 @@ function Test-FirstReleaseVersion {
                 Write-SafeInfoLog -Message "Found FEATURE/MINOR indicators in git history"
             }
         }
-    } catch {
+    }
+    catch {
         Write-SafeWarningLog -Message "Could not analyze git history, using default patch bump"
     }
-    # Also consider branch name
+
+    # Branchname berücksichtigen
     $branchBumpType = Get-VersionBumpType -BranchName $BranchName
     $finalBumpType = Get-HigherBumpType -BumpType1 $gitBumpType -BumpType2 $branchBumpType
+
     Write-SafeInfoLog -Message "First release bump determination: Git=$gitBumpType, Branch=$branchBumpType, Final=$finalBumpType"
-    # Calculate new version
+
+    # Neue Version berechnen
     try {
-        $newVersion = Step-Version -Version $CurrentVersion -BumpType $finalBumpType
-    } catch {
-        Write-SafeErrorLog -Message "Failed to step version in first release: $CurrentVersion"
-        return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -IsFirstRelease $true -Error "Failed to step version: $CurrentVersion"
-    }
-    return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType $finalBumpType -NewVersion $newVersion.ToString() -IsFirstRelease $true -Error $null -Instructions $null -GitContext @{
-        GitBumpType     = $gitBumpType
-        BranchBumpType  = $branchBumpType
-        IsStandardStart = $isStandardStart
-        ForceUsed       = $ForceFirstRelease.IsPresent
-    }
-        # Calculate new version
-        $newVersion = Step-Version -Version $CurrentVersion -BumpType $finalBumpType
+        $baseNewVersion = Step-Version -Version $CurrentVersion -BumpType $finalBumpType
         
-        return [PSCustomObject]@{
-            BumpType     = $finalBumpType
-            NewVersion   = $newVersion.ToString()
-            Error        = $null
-            Instructions = $null
-            GitContext   = @{
-                GitBumpType     = $gitBumpType
-                BranchBumpType  = $branchBumpType
-                IsStandardStart = $isStandardStart
-                ForceUsed       = $ForceFirstRelease.IsPresent
+        # Check for pre-release suffix requirements in first release
+        $suffixType = Get-PreReleaseSuffixType -BranchName $BranchName
+        if ($suffixType) {
+            Write-SafeInfoLog -Message "First release with pre-release suffix: $suffixType"
+            $buildNumber = 1  # First release always starts with build 1
+            $finalVersion = Add-PreReleaseSuffix -Version $baseNewVersion.ToString() -SuffixType $suffixType -BuildNumber $buildNumber
+            
+            # Erfolgreiches Ergebnis mit Suffix zurückgeben
+            $rv = @{
+                CurrentVersion = $CurrentVersion
+                BumpType       = $finalBumpType
+                NewVersion     = $finalVersion
+                IsFirstRelease = $true
+                Error          = $null
+                Instructions   = $null
+                GitContext     = @{
+                    GitBumpType     = $gitBumpType
+                    BranchBumpType  = $branchBumpType
+                    IsStandardStart = $isStandardStart
+                    ForceUsed       = $ForceFirstRelease.IsPresent
+                    PreReleaseSuffix = $suffixType
+                    BuildNumber = $buildNumber
+                    BaseVersion = $baseNewVersion.ToString()
+                }
+            }
+        }
+        else {
+            # Standard first release without suffix
+            $rv = @{
+                CurrentVersion = $CurrentVersion
+                BumpType       = $finalBumpType
+                NewVersion     = $baseNewVersion.ToString()
+                IsFirstRelease = $true
+                Error          = $null
+                Instructions   = $null
+                GitContext     = @{
+                    GitBumpType     = $gitBumpType
+                    BranchBumpType  = $branchBumpType
+                    IsStandardStart = $isStandardStart
+                    ForceUsed       = $ForceFirstRelease.IsPresent
+                }
             }
         }
     }
     catch {
-        Write-SafeErrorLog -Message "Failed to test first release version" -Context $_.Exception.Message
-        
-    return New-VersionResultObject -BumpType "none" -NewVersion $CurrentVersion -Error $_.Exception.Message
+        Write-SafeErrorLog -Message "Failed to step version in first release: $CurrentVersion"
+        $rv = @{
+            CurrentVersion = $CurrentVersion
+            BumpType       = "none"
+            NewVersion     = $CurrentVersion
+            IsFirstRelease = $true
+            Error          = "Failed to step version: $CurrentVersion"
+        }
+        return New-VersionResultObject @rv
     }
+
+    return New-VersionResultObject @rv
 }
 
 function Get-ReleaseVersionBumpType {
-    <#
-    .SYNOPSIS
-        Determines version bump type by analyzing merged branches since last release.
-    
-    .DESCRIPTION
-        Analyzes git commit history since the last release tag to determine the appropriate
-        semantic version bump type based on branch names and commit messages.
-    
-    .PARAMETER LastReleaseTag
-        The git tag of the last release.
-    
-    .PARAMETER TargetBranch
-        The target branch to analyze (main/master). Auto-discovery if empty.
-    
-    .OUTPUTS
-        String indicating the bump type: "major", "minor", or "patch".
-    #>
     [CmdletBinding()]
     [OutputType([string])]
     param (
@@ -433,7 +436,6 @@ function Get-ReleaseVersionBumpType {
         [Parameter(Mandatory = $false)]
         [string]$TargetBranch = ""
     )
-    
     try {
         Write-SafeDebugLog -Message "Analyzing changes since last release: $LastReleaseTag"
         
@@ -501,24 +503,6 @@ function Get-ReleaseVersionBumpType {
 }
 
 function Get-VersionBumpType {
-    <#
-    .SYNOPSIS
-        Determines version bump type based on branch naming conventions.
-    
-    .DESCRIPTION
-        Analyzes branch name patterns to suggest appropriate semantic version bump type.
-        Follows common Git branching conventions for determining version increments.
-    
-    .PARAMETER BranchName
-        The name of the Git branch to analyze.
-    
-    .OUTPUTS
-        String indicating the bump type: "major", "minor", or "patch".
-    
-    .EXAMPLE
-        $bumpType = Get-VersionBumpType -BranchName "feature/new-api"
-        # Returns: "minor"
-    #>
     [CmdletBinding()]
     [OutputType([string])]
     param (
@@ -553,27 +537,6 @@ function Get-VersionBumpType {
 }
 
 function Step-Version {
-    <#
-    .SYNOPSIS
-        Increments a semantic version based on the specified bump type.
-    
-    .DESCRIPTION
-        Takes a semantic version string and increments it according to the bump type.
-        Follows semantic versioning rules for major, minor, and patch increments.
-    
-    .PARAMETER Version
-        The current version string (e.g., "1.2.3").
-    
-    .PARAMETER BumpType
-        The type of version bump: "major", "minor", or "patch".
-    
-    .OUTPUTS
-        Version object representing the new version.
-    
-    .EXAMPLE
-        $newVersion = Step-Version -Version "1.2.3" -BumpType "minor"
-        # Returns: Version object for "1.3.0"
-    #>
     [CmdletBinding()]
     [OutputType([Version])]
     param (
@@ -613,23 +576,6 @@ function Step-Version {
 }
 
 function Get-HigherBumpType {
-    <#
-    .SYNOPSIS
-        Compares two bump types and returns the more significant one.
-    
-    .DESCRIPTION
-        Helper function to determine which of two version bump types takes precedence.
-        Major > Minor > Patch in terms of significance.
-    
-    .PARAMETER BumpType1
-        First bump type to compare.
-    
-    .PARAMETER BumpType2
-        Second bump type to compare.
-    
-    .OUTPUTS
-        String indicating the higher priority bump type.
-    #>
     [CmdletBinding()]
     [OutputType([string])]
     param (
@@ -653,3 +599,208 @@ function Get-HigherBumpType {
         return $BumpType2
     }
 }
+
+#region PreRelease Suffix Management
+
+function Get-PreReleaseSuffixConfig {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    
+    return @{
+        "alpha" = @{
+            BranchPatterns = @("^alpha/.*", "^experimental/.*", "^poc/.*")
+            Priority = 1
+            Format = "alpha.{0}"
+            Description = "Experimental or proof-of-concept features"
+        }
+        "beta" = @{
+            BranchPatterns = @("^beta/.*", "^preview/.*", "^staging/.*")
+            Priority = 2
+            Format = "beta.{0}"
+            Description = "Feature-complete but not production-ready"
+        }
+        "rc" = @{
+            BranchPatterns = @("^rc/.*", "^release/.*", "^candidate/.*")
+            Priority = 3
+            Format = "rc.{0}"
+            Description = "Release candidate - final testing phase"
+        }
+    }
+}
+
+function Get-PreReleaseSuffixType {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$BranchName
+    )
+    
+    Write-SafeDebugLog -Message "Analyzing branch for pre-release suffix: $BranchName"
+    
+    $suffixConfig = Get-PreReleaseSuffixConfig
+    $branchLower = $BranchName.ToLower()
+    
+    # Check each suffix type in priority order (lowest to highest)
+    $matchedSuffix = $null
+    $highestPriority = 0
+    
+    foreach ($suffixType in $suffixConfig.Keys) {
+        $config = $suffixConfig[$suffixType]
+        
+        foreach ($pattern in $config.BranchPatterns) {
+            if ($branchLower -match $pattern.ToLower()) {
+                if ($config.Priority -gt $highestPriority) {
+                    $matchedSuffix = $suffixType
+                    $highestPriority = $config.Priority
+                    Write-SafeInfoLog -Message "Found pre-release suffix '$suffixType' for pattern '$pattern'"
+                }
+            }
+        }
+    }
+    
+    if ($matchedSuffix) {
+        Write-SafeInfoLog -Message "Selected pre-release suffix: $matchedSuffix (priority: $highestPriority)"
+        return $matchedSuffix
+    }
+    
+    Write-SafeDebugLog -Message "No pre-release suffix pattern matched for branch: $BranchName"
+    return $null
+}
+
+function Add-PreReleaseSuffix {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Version,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$SuffixType,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$BuildNumber = 1
+    )
+    
+    Write-SafeDebugLog -Message "Adding pre-release suffix '$SuffixType' to version '$Version'"
+    
+    try {
+        # Validate base version format
+        $baseVersion = [Version]::Parse($Version)
+        
+        # Get suffix configuration
+        $suffixConfig = Get-PreReleaseSuffixConfig
+        if (-not $suffixConfig.ContainsKey($SuffixType)) {
+            throw "Unknown suffix type: $SuffixType. Valid types: $($suffixConfig.Keys -join ', ')"
+        }
+        
+        $config = $suffixConfig[$SuffixType]
+        $suffixString = $config.Format -f $BuildNumber
+        
+        $newVersionString = "$($baseVersion.ToString())-$suffixString"
+        
+        Write-SafeInfoLog -Message "Applied pre-release suffix: $Version → $newVersionString"
+        return $newVersionString
+    }
+    catch {
+        Write-SafeErrorLog -Message "Failed to add pre-release suffix" -Context $_.Exception.Message
+        throw
+    }
+}
+
+function Test-PreReleaseSuffixFormat {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Version
+    )
+    
+    Write-SafeDebugLog -Message "Validating pre-release version format: $Version"
+    
+    # Pattern für SemVer Pre-Release: X.Y.Z-prerelease
+    $semVerPreReleasePattern = '^(\d+)\.(\d+)\.(\d+)-([a-zA-Z0-9\-\.]+)$'
+    
+    if ($Version -match $semVerPreReleasePattern) {
+        $baseVersion = "$($matches[1]).$($matches[2]).$($matches[3])"
+        $preReleaseTag = $matches[4]
+        
+        try {
+            # Validate base version part
+            $null = [Version]::Parse($baseVersion)
+            
+            # Check if pre-release tag matches our supported formats
+            $suffixConfig = Get-PreReleaseSuffixConfig
+            $validSuffix = $false
+            
+            foreach ($suffixType in $suffixConfig.Keys) {
+                $config = $suffixConfig[$suffixType]
+                $expectedPattern = $config.Format -f '\d+'
+                if ($preReleaseTag -match "^$($expectedPattern.Replace('{0}', '\d+'))$") {
+                    $validSuffix = $true
+                    break
+                }
+            }
+            
+            if ($validSuffix) {
+                Write-SafeInfoLog -Message "Valid pre-release version format: $Version"
+                return $true
+            }
+        }
+        catch {
+            Write-SafeWarningLog -Message "Invalid base version in pre-release: $baseVersion"
+        }
+    }
+    
+    Write-SafeWarningLog -Message "Invalid pre-release version format: $Version"
+    return $false
+}
+
+function Get-NextBuildNumber {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$SuffixType,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$BaseVersion = $null
+    )
+    
+    Write-SafeDebugLog -Message "Determining next build number for suffix type: $SuffixType"
+    
+    try {
+        # Get existing tags with this suffix type
+        $tags = & git tag -l 2>$null | Where-Object { 
+            $_ -match "v?$BaseVersion.*-$SuffixType\.\d+" 
+        }
+        
+        if (-not $tags) {
+            Write-SafeInfoLog -Message "No existing tags found for suffix '$SuffixType', starting with build 1"
+            return [int]1
+        }
+        
+        # Extract build numbers and find the highest
+        $buildNumbers = $tags | ForEach-Object {
+            if ($_ -match "$SuffixType\.(\d+)") {
+                [int]$matches[1]
+            }
+        } | Where-Object { $_ -ne $null }
+        
+        if ($buildNumbers) {
+            $maxBuild = ($buildNumbers | Measure-Object -Maximum).Maximum
+            $nextBuild = [int]($maxBuild + 1)
+            Write-SafeInfoLog -Message "Found existing builds for '$SuffixType': max=$maxBuild, next=$nextBuild"
+            return [int]$nextBuild
+        }
+        
+        return [int]1
+    }
+    catch {
+        Write-SafeWarningLog -Message "Could not determine build number, defaulting to 1: $($_.Exception.Message)"
+        return [int]1
+    }
+}
+
+#endregion
