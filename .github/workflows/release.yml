@@ -7,6 +7,12 @@ on:
       - '**.md'
       - 'docs/**'
   workflow_dispatch:
+    inputs:
+      force-release:
+        description: 'Force release even if no changes'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   # 🧪 First run ALL tests - Release ONLY if tests pass!
@@ -19,7 +25,12 @@ jobs:
     name: 📦 Version & Release
     runs-on: ubuntu-latest
     needs: run-tests  # 🚨 CRITICAL: Release only after successful tests!
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && (needs.run-tests.outputs.test-success == 'true' || github.event.inputs.force-release == 'true')
+    outputs:
+      next-version: ${{ steps.version.outputs.nextVersion }}
+      target-branch: ${{ steps.version.outputs.targetBranch }}
+      suffix: ${{ steps.version.outputs.suffix }}
+      action-required: ${{ steps.version.outputs.actionRequired }}
     
     steps:
       - name: 📥 Checkout Repository
@@ -35,111 +46,71 @@ jobs:
           branchName: ${{ github.ref_name }}
           commitMessage: ${{ github.event.head_commit.message }}
 
-      - name: 📋 Release Summary
+      - name: 📋 Generate Release Summary
+        shell: pwsh
         run: |
-          echo "## 🚀 K.Actions.NextVersion Release Pipeline" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✅ Quality Gates Passed" >> $GITHUB_STEP_SUMMARY
-          echo "- 🧪 **Pester Tests**: All unit tests passed" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔄 **Version Detection**: Branch pattern tests passed" >> $GITHUB_STEP_SUMMARY
-          echo "- 💥 **Breaking Changes**: Override detection tests passed" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔎 **Auto-Discovery**: Manifest discovery tests passed" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔗 **Integration**: End-to-end tests passed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🎯 Release Information" >> $GITHUB_STEP_SUMMARY
-          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Previous Version | \`${{ steps.version.outputs.currentVersion }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Bump Type | \`${{ steps.version.outputs.bumpType }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| New Version | \`${{ steps.version.outputs.newVersion }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Target Branch | \`${{ steps.version.outputs.targetBranch }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Suffix | \`${{ steps.version.outputs.suffix }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Commit | \`${{ github.event.head_commit.message }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          $versionResults = @{
+            NextVersion = '${{ steps.version.outputs.nextVersion }}'
+            TargetBranch = '${{ steps.version.outputs.targetBranch }}'
+            Suffix = '${{ steps.version.outputs.suffix }}'
+            ActionRequired = '${{ steps.version.outputs.actionRequired }}'
+          }
+          $testResults = @{
+            TotalTests = '${{ needs.run-tests.outputs.total-tests }}'
+            PassedTests = '${{ needs.run-tests.outputs.passed-tests }}'
+            FailedTests = '${{ needs.run-tests.outputs.failed-tests }}'
+            SkippedTests = '0'  # Release workflow doesn't run skipped tests
+          }
+          & "./.github/scripts/New-GitHubSummary.ps1" -SummaryType 'release' -VersionResults $versionResults -TestResults $testResults
 
       - name: 🏷️ Create Git Tag
-        if: steps.version.outputs.newVersion != steps.version.outputs.currentVersion
+        if: steps.version.outputs.actionRequired == 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ steps.version.outputs.newVersion }}" -m "Release v${{ steps.version.outputs.newVersion }}"
-          git push origin "v${{ steps.version.outputs.newVersion }}"
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git tag -a "v${{ steps.version.outputs.nextVersion }}" -m "Release v${{ steps.version.outputs.nextVersion }}"
+          git push origin "v${{ steps.version.outputs.nextVersion }}"
 
       - name: 📦 Create GitHub Release
-        if: steps.version.outputs.newVersion != steps.version.outputs.currentVersion
+        if: steps.version.outputs.actionRequired == 'true'
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ steps.version.outputs.newVersion }}
-          release_name: 🚀 K.Actions.NextVersion v${{ steps.version.outputs.newVersion }}
+          tag_name: v${{ steps.version.outputs.nextVersion }}
+          release_name: Release v${{ steps.version.outputs.nextVersion }}
           body: |
-            ## 🎉 Release v${{ steps.version.outputs.newVersion }}
+            ## 🚀 Release v${{ steps.version.outputs.nextVersion }}
             
-            **Bump Type:** `${{ steps.version.outputs.bumpType }}`  
-            **Previous Version:** `${{ steps.version.outputs.currentVersion }}`  
-            **Branch:** `${{ github.ref_name }}`
+            ### ✅ Quality Assurance
+            - 🧪 Tests Passed: ${{ needs.run-tests.outputs.passed-tests }}/${{ needs.run-tests.outputs.total-tests }}
+            - 🔄 Change Type: ${{ steps.version.outputs.suffix }}
+            - 🎯 Target Branch: ${{ steps.version.outputs.targetBranch }}
             
-            ### 📋 What's Changed
+            ### 📋 Release Information
+            This release was automatically generated based on semantic versioning rules.
+            All quality gates have been passed successfully.
             
-            This release was automatically generated based on semantic versioning rules:
-            
-            - **Major** (`X.0.0`): Breaking changes, major API changes
-            - **Minor** (`X.Y.0`): New features, backward compatible
-            - **Patch** (`X.Y.Z`): Bug fixes, small improvements
-            
-            ### 🚀 Usage
-            
-            ```yaml
-            - name: Get Next Version
-              uses: GrexyLoco/K.Actions.NextVersion@v${{ steps.version.outputs.newVersion }}
-              with:
-                manifestPath: './MyModule/MyModule.psd1'
-            ```
-            
-            ### 📖 Documentation
-            
-            See [README.md](README.md) for complete usage instructions and examples.
-            
-            ---
-            
-            **Full Changelog**: https://github.com/GrexyLoco/K.Actions.NextVersion/compare/v${{ steps.version.outputs.currentVersion }}...v${{ steps.version.outputs.newVersion }}
+            **Branch**: `${{ github.ref_name }}`  
+            **Commit**: `${{ github.sha }}`  
+            **Triggered by**: @${{ github.actor }}
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(steps.version.outputs.suffix, 'pre') || contains(steps.version.outputs.suffix, 'alpha') || contains(steps.version.outputs.suffix, 'beta') }}
 
-      - name: 🎯 Update Major Version Tag
-        if: steps.version.outputs.newVersion != steps.version.outputs.currentVersion
+  # 📊 Post-Release Notification
+  notify-success:
+    name: 📢 Notify Success
+    runs-on: ubuntu-latest
+    needs: [run-tests, version-and-release]
+    if: success()
+    
+    steps:
+      - name: 🎉 Success Notification
         run: |
-          # Extract major version (e.g., v1.2.3 -> v1)
-          MAJOR_VERSION=$(echo "v${{ steps.version.outputs.newVersion }}" | cut -d. -f1)
-          
-          # Delete existing major version tag if it exists
-          git tag -d "$MAJOR_VERSION" 2>/dev/null || true
-          git push origin ":refs/tags/$MAJOR_VERSION" 2>/dev/null || true
-          
-          # Create new major version tag
-          git tag -a "$MAJOR_VERSION" -m "Major version tag for $MAJOR_VERSION.x.x"
-          git push origin "$MAJOR_VERSION"
-          
-          echo "Updated major version tag: $MAJOR_VERSION"
-
-      - name: ✅ Release Complete
-        if: steps.version.outputs.newVersion != steps.version.outputs.currentVersion
-        run: |
-          echo "🎉 Release v${{ steps.version.outputs.newVersion }} created successfully!"
-          echo "✅ Git tag created: v${{ steps.version.outputs.newVersion }}"
-          echo "✅ GitHub release published"
-          echo "✅ Major version tag updated"
-          echo ""
-          echo "📋 Users can now reference this action as:"
-          echo "   uses: GrexyLoco/K.Actions.NextVersion@v${{ steps.version.outputs.newVersion }}"
-          echo "   uses: GrexyLoco/K.Actions.NextVersion@$(echo "v${{ steps.version.outputs.newVersion }}" | cut -d. -f1)"
-
-      - name: ℹ️ No Release Needed
-        if: steps.version.outputs.newVersion == steps.version.outputs.currentVersion
-        run: |
-          echo "ℹ️ No version change detected"
-          echo "Current version: ${{ steps.version.outputs.currentVersion }}"
-          echo "Calculated version: ${{ steps.version.outputs.newVersion }}"
-          echo "No release will be created."
+          echo "## 🎉 Release Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Version**: v${{ needs.version-and-release.outputs.next-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Tests**: ${{ needs.run-tests.outputs.passed-tests }}/${{ needs.run-tests.outputs.total-tests }} passed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Quality Gates**: All checks passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 **Release is live and ready for use!**" >> $GITHUB_STEP_SUMMARY

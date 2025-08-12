@@ -33,6 +33,18 @@ git clone https://github.com/GrexyLoco/K.Actions.NextVersion.git
 Import-Module .\K.Actions.NextVersion\K.PSGallery.SemanticVersioning
 ```
 
+## ⚠️ Requirements & Limitations
+
+### 📋 **Repository Structure**
+- **One PowerShell module per repository** (single .psd1 manifest file)
+- For multi-module repositories, specify exact `-ManifestPath`
+- Git repository with commit history and optional release tags
+
+### 🛠️ **Dependencies**
+- PowerShell 5.1+ or PowerShell Core 6.0+
+- Git CLI available in PATH
+- K.PSGallery.LoggingModule (auto-installed from PowerShell Gallery)
+
 ## 🎯 Quick Start
 
 ### Basic Usage
@@ -109,8 +121,14 @@ Validates first release versions and provides structured guidance.
 | `PATCH`, `FIX`, `BUGFIX`, `HOTFIX` | Patch | "FIX: Resolve memory leak" |
 
 **Alpha/Beta Suffixes:**
-- `BREAKING-ALPHA` → 2.0.0-alpha
-- `FEATURE-BETA` → 1.3.0-beta
+- `BREAKING-ALPHA` → 2.0.0-alpha.1
+- `FEATURE-BETA` → 1.3.0-beta.1
+- `FEAT-ALPHA`, `FIX-BETA`, `PATCH-ALPHA` etc.
+
+**Multiple Prerelease Keywords in Same Release:**
+- If commits contain both `alpha` and `beta` keywords, `beta` wins (higher priority)
+- Example: `feat-alpha` + `fix-beta` → Results in `1.3.0-beta.1`
+- Priority: `beta` > `alpha` (beta is more mature/stable)
 
 ## 🔄 First Release Logic
 

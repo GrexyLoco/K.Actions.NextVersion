@@ -27,81 +27,140 @@ AfterAll {
     Remove-Module K.PSGallery.SemanticVersioning -Force -ErrorAction SilentlyContinue
 }
 
-Describe "Pre-Release Suffix Configuration" {
-    Context "Get-PreReleaseSuffixConfig" {
-        It "Should return valid configuration structure" {
+Describe "Pre-Release Detection from Commit Messages" {
+    Context "Get-PreReleaseSuffixFromCommits" {
+        It "Should detect alpha suffix from commit keywords" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                $config = Get-PreReleaseSuffixConfig
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log") {
+                        return @(
+                            "feat-alpha: Add new experimental feature",
+                            "fix: Normal bug fix",
+                            "docs: Update documentation"
+                        )
+                    }
+                    return @()
+                }
                 
-                $config | Should -Not -BeNullOrEmpty
-                $config.Keys | Should -Contain "alpha"
-                $config.Keys | Should -Contain "beta" 
-                $config.Keys | Should -Contain "rc"
+                $result = Get-PreReleaseSuffixFromCommits
+                $result | Should -Be "alpha"
+            }
+        }
+        
+        It "Should detect beta suffix from commit keywords" {
+            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log") {
+                        return @(
+                            "feature-beta: New feature in beta",
+                            "breaking-beta: Breaking change in beta"
+                        )
+                    }
+                    return @()
+                }
                 
-                # Test alpha configuration
-                $config["alpha"] | Should -Not -BeNullOrEmpty
-                $config["alpha"].BranchPatterns | Should -Not -BeNullOrEmpty
-                $config["alpha"].Priority | Should -Be 1
-                $config["alpha"].Format | Should -Be "alpha.{0}"
+                $result = Get-PreReleaseSuffixFromCommits
+                $result | Should -Be "beta"
             }
         }
         
-        It "Should have correct priority ordering" {
+        It "Should detect various keyword combinations with suffixes" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                $config = Get-PreReleaseSuffixConfig
+                $testCases = @(
+                    @{ Keywords = @("BREAKING-ALPHA: Major change"); Expected = "alpha" },
+                    @{ Keywords = @("MAJOR-BETA: Breaking update"); Expected = "beta" },
+                    @{ Keywords = @("FEATURE-ALPHA: New feature"); Expected = "alpha" },
+                    @{ Keywords = @("MINOR-BETA: Minor update"); Expected = "beta" },
+                    @{ Keywords = @("FEAT-ALPHA: Short form"); Expected = "alpha" },
+                    @{ Keywords = @("PATCH-BETA: Patch with beta"); Expected = "beta" },
+                    @{ Keywords = @("FIX-ALPHA: Bug fix alpha"); Expected = "alpha" },
+                    @{ Keywords = @("BUGFIX-BETA: Bug fix beta"); Expected = "beta" },
+                    @{ Keywords = @("HOTFIX-ALPHA: Hotfix alpha"); Expected = "alpha" }
+                )
                 
-                $config["alpha"].Priority | Should -BeLessThan $config["beta"].Priority
-                $config["beta"].Priority | Should -BeLessThan $config["rc"].Priority
-            }
-        }
-    }
-}
-
-Describe "Pre-Release Suffix Type Detection" {
-    Context "Get-PreReleaseSuffixType" {
-        It "Should detect alpha suffix from branch patterns" {
-            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                Get-PreReleaseSuffixType -BranchName "alpha/new-feature" | Should -Be "alpha"
-                Get-PreReleaseSuffixType -BranchName "experimental/test" | Should -Be "alpha"
-                Get-PreReleaseSuffixType -BranchName "poc/validation" | Should -Be "alpha"
+                foreach ($testCase in $testCases) {
+                    Mock -CommandName "git" -MockWith {
+                        if ($args[0] -eq "log") { return $testCase.Keywords }
+                        return @()
+                    }
+                    
+                    $result = Get-PreReleaseSuffixFromCommits
+                    $result | Should -Be $testCase.Expected -Because "Should detect $($testCase.Expected) from: $($testCase.Keywords -join ', ')"
+                }
             }
         }
         
-        It "Should detect beta suffix from branch patterns" {
+        It "Should return null for standard commit messages" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                Get-PreReleaseSuffixType -BranchName "beta/release-prep" | Should -Be "beta"
-                Get-PreReleaseSuffixType -BranchName "preview/new-ui" | Should -Be "beta"
-                Get-PreReleaseSuffixType -BranchName "staging/final-test" | Should -Be "beta"
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log") {
+                        return @(
+                            "feat: Add new feature",
+                            "fix: Bug fix",
+                            "breaking: Breaking change",
+                            "major: Major update"
+                        )
+                    }
+                    return @()
+                }
+                
+                $result = Get-PreReleaseSuffixFromCommits
+                $result | Should -BeNullOrEmpty
             }
         }
         
-        It "Should detect rc suffix from branch patterns" {
+        It "Should handle first releases (no LastReleaseTag)" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                Get-PreReleaseSuffixType -BranchName "rc/v2.0" | Should -Be "rc"
-                Get-PreReleaseSuffixType -BranchName "release/candidate" | Should -Be "rc"
-                Get-PreReleaseSuffixType -BranchName "candidate/final" | Should -Be "rc"
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log" -and $args[1] -eq "--oneline" -and $args[2] -eq "--all") {
+                        return @("feat-alpha: Initial feature")
+                    }
+                    return @()
+                }
+                
+                $result = Get-PreReleaseSuffixFromCommits -LastReleaseTag $null
+                $result | Should -Be "alpha"
             }
         }
         
-        It "Should return null for standard branches" {
+        It "Should handle commits since last release" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                Get-PreReleaseSuffixType -BranchName "main" | Should -BeNullOrEmpty
-                Get-PreReleaseSuffixType -BranchName "feature/standard" | Should -BeNullOrEmpty
-                Get-PreReleaseSuffixType -BranchName "bugfix/issue-123" | Should -BeNullOrEmpty
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log" -and $args[1] -eq "v1.0.0..HEAD") {
+                        return @("feature-beta: New beta feature")
+                    }
+                    return @()
+                }
+                
+                $result = Get-PreReleaseSuffixFromCommits -LastReleaseTag "v1.0.0"
+                $result | Should -Be "beta"
             }
         }
         
-        It "Should prioritize higher priority suffixes" {
+        It "Should return first found prerelease suffix if multiple exist" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                # If a branch could match multiple patterns, higher priority wins
-                Get-PreReleaseSuffixType -BranchName "rc/beta-test" | Should -Be "rc"
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log") {
+                        return @(
+                            "feat-alpha: First feature",
+                            "fix-beta: Beta fix", 
+                            "patch-alpha: Another alpha"
+                        )
+                    }
+                    return @()
+                }
+                
+                $result = Get-PreReleaseSuffixFromCommits
+                $result | Should -Be "alpha"  # Should return first match
             }
         }
         
-        It "Should be case insensitive" {
+        It "Should handle git errors gracefully" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                Get-PreReleaseSuffixType -BranchName "ALPHA/TEST" | Should -Be "alpha"
-                Get-PreReleaseSuffixType -BranchName "Beta/Feature" | Should -Be "beta"
+                Mock -CommandName "git" -MockWith { throw "Git not found" }
+                
+                $result = Get-PreReleaseSuffixFromCommits
+                $result | Should -BeNullOrEmpty
             }
         }
     }
@@ -120,13 +179,6 @@ Describe "Pre-Release Suffix Application" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
                 $result = Add-PreReleaseSuffix -Version "2.0.0" -SuffixType "beta" -BuildNumber 5
                 $result | Should -Be "2.0.0-beta.5"
-            }
-        }
-        
-        It "Should add rc suffix correctly" {
-            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                $result = Add-PreReleaseSuffix -Version "1.5.2" -SuffixType "rc" -BuildNumber 2
-                $result | Should -Be "1.5.2-rc.2"
             }
         }
         
@@ -161,54 +213,14 @@ Describe "Pre-Release Suffix Application" {
     }
 }
 
-Describe "Pre-Release Version Validation" {
-    Context "Test-PreReleaseSuffixFormat" {
-        It "Should validate correct alpha format" {
-            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                Test-PreReleaseSuffixFormat -Version "1.2.3-alpha.1" | Should -Be $true
-                Test-PreReleaseSuffixFormat -Version "2.0.0-alpha.15" | Should -Be $true
-            }
-        }
-        
-        It "Should validate correct beta format" {
-            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                Test-PreReleaseSuffixFormat -Version "1.5.0-beta.1" | Should -Be $true
-                Test-PreReleaseSuffixFormat -Version "3.2.1-beta.8" | Should -Be $true
-            }
-        }
-        
-        It "Should validate correct rc format" {
-            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                Test-PreReleaseSuffixFormat -Version "2.1.0-rc.1" | Should -Be $true
-                Test-PreReleaseSuffixFormat -Version "1.0.0-rc.3" | Should -Be $true
-            }
-        }
-        
-        It "Should reject invalid formats" {
-            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                Test-PreReleaseSuffixFormat -Version "1.2.3-invalid.1" | Should -Be $false
-                Test-PreReleaseSuffixFormat -Version "1.2.3-alpha" | Should -Be $false
-                Test-PreReleaseSuffixFormat -Version "invalid-alpha.1" | Should -Be $false
-                Test-PreReleaseSuffixFormat -Version "1.2-alpha.1" | Should -Be $false
-            }
-        }
-        
-        It "Should reject standard versions" {
-            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                Test-PreReleaseSuffixFormat -Version "1.2.3" | Should -Be $false
-            }
-        }
-    }
-}
-
 Describe "Build Number Management" {
-    Context "Get-NextBuildNumber (Internal Function)" {
+    Context "Get-NextBuildNumber" {
         It "Should return 1 for new suffix type" {
             InModuleScope K.PSGallery.SemanticVersioning {
                 # Mock git to return no tags
                 Mock -CommandName "git" -MockWith { return @() }
                 
-                $result = Get-NextBuildNumber -SuffixType "rc"
+                $result = Get-NextBuildNumber -SuffixType "alpha"
                 $result | Should -Be 1
                 $result | Should -BeOfType [int]
             }
@@ -248,56 +260,211 @@ Describe "Build Number Management" {
 }
 
 Describe "Integration with Main Functions" {
-    Context "Get-NextSemanticVersion with Pre-Release Suffixes" {
-        It "Should detect alpha suffix type correctly" {
+    Context "Get-NextSemanticVersion with Pre-Release from Commits" {
+        It "Should detect prerelease from commit messages in first release" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                $suffixType = Get-PreReleaseSuffixType -BranchName "alpha/new-feature"
+                # Mock git commands for first release scenario
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "tag") {
+                        return @()  # No existing tags
+                    }
+                    if ($args[0] -eq "log" -and $args[1] -eq "--oneline" -and $args[2] -eq "--all") {
+                        return @("feat-alpha: Initial experimental feature")
+                    }
+                    return @()
+                }
+                
+                # This would need the full Get-NextSemanticVersion integration
+                $suffixType = Get-PreReleaseSuffixFromCommits -LastReleaseTag $null
                 $suffixType | Should -Be "alpha"
             }
         }
         
-        It "Should detect beta suffix type correctly" {
+        It "Should detect prerelease from commit messages in subsequent releases" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                $suffixType = Get-PreReleaseSuffixType -BranchName "beta/release-prep"
+                # Mock git commands for subsequent release scenario  
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log" -and $args[1] -eq "v1.0.0..HEAD") {
+                        return @("feature-beta: Beta feature development")
+                    }
+                    return @()
+                }
+                
+                $suffixType = Get-PreReleaseSuffixFromCommits -LastReleaseTag "v1.0.0"
                 $suffixType | Should -Be "beta"
             }
         }
         
-        It "Should add alpha suffix correctly" {
+        It "Should not detect prerelease from standard commit messages" {
             InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                $version = Add-PreReleaseSuffix -Version "1.0.1" -SuffixType "alpha" -BuildNumber 1
-                $version | Should -Be "1.0.1-alpha.1"
-            }
-        }
-        
-        It "Should add beta suffix correctly" {
-            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                $version = Add-PreReleaseSuffix -Version "1.0.1" -SuffixType "beta" -BuildNumber 2
-                $version | Should -Be "1.0.1-beta.2"
-            }
-        }
-        
-        It "Should calculate next build number correctly" {
-            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                # Mock git to return no existing tags for this test
-                Mock -CommandName "git" -MockWith { return @() }
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log") {
+                        return @(
+                            "feat: Standard feature",
+                            "fix: Standard fix",
+                            "breaking: Standard breaking change"
+                        )
+                    }
+                    return @()
+                }
                 
-                $buildNumber = Get-NextBuildNumber -SuffixType "alpha" -BaseVersion "1.0.1"
-                $buildNumber | Should -Be 1
-                $buildNumber | Should -BeOfType [int]
-            }
-        }
-    }
-    
-    Context "First Release with Pre-Release Suffixes" {
-        It "Should handle first release suffix detection" {
-            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
-                $suffixType = Get-PreReleaseSuffixType -BranchName "alpha/initial"
-                $suffixType | Should -Be "alpha"
-                
-                $suffixType = Get-PreReleaseSuffixType -BranchName "main"
+                $suffixType = Get-PreReleaseSuffixFromCommits
                 $suffixType | Should -BeNullOrEmpty
             }
         }
+    }
+}
+
+Describe "Multiple Prerelease Keywords Priority Logic" {
+    Context "Get-PreReleaseSuffixFromCommits Priority Handling" {
+        It "Should prioritize beta over alpha when both are present" {
+            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log") {
+                        return @(
+                            "feat-alpha: Alpha feature",
+                            "fix-beta: Beta bug fix",
+                            "patch-alpha: Another alpha commit"
+                        )
+                    }
+                    return @()
+                }
+                
+                $result = Get-PreReleaseSuffixFromCommits
+                $result | Should -Be "beta"
+            }
+        }
+        
+        It "Should select alpha when only alpha keywords are present" {
+            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log") {
+                        return @(
+                            "feat-alpha: Alpha feature",
+                            "fix-alpha: Alpha bug fix",
+                            "major-alpha: Alpha breaking change"
+                        )
+                    }
+                    return @()
+                }
+                
+                $result = Get-PreReleaseSuffixFromCommits
+                $result | Should -Be "alpha"
+            }
+        }
+        
+        It "Should select beta when only beta keywords are present" {
+            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log") {
+                        return @(
+                            "feature-beta: Beta feature",
+                            "breaking-beta: Beta breaking change"
+                        )
+                    }
+                    return @()
+                }
+                
+                $result = Get-PreReleaseSuffixFromCommits
+                $result | Should -Be "beta"
+            }
+        }
+        
+        It "Should handle mixed case keywords correctly" {
+            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log") {
+                        return @(
+                            "Feat-Alpha: Mixed case alpha",
+                            "FIX-BETA: Upper case beta"
+                        )
+                    }
+                    return @()
+                }
+                
+                $result = Get-PreReleaseSuffixFromCommits
+                $result | Should -Be "beta"
+            }
+        }
+        
+        It "Should return null when no prerelease keywords found" {
+            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "log") {
+                        return @(
+                            "feat: Normal feature",
+                            "fix: Normal bug fix",
+                            "breaking: Normal breaking change"
+                        )
+                    }
+                    return @()
+                }
+                
+                $result = Get-PreReleaseSuffixFromCommits
+                $result | Should -BeNullOrEmpty
+            }
+        }
+    }
+}
+
+Describe "Prerelease Build Number Management" {
+    Context "Get-NextBuildNumber with Existing Tags" {
+        It "Should find highest build number and increment" {
+            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "tag" -and $args[1] -eq "-l") {
+                        return @(
+                            "v1.0.0-alpha.1",
+                            "v1.0.0-alpha.5",
+                            "v1.0.0-alpha.2",
+                            "v1.0.0-beta.1",
+                            "v1.1.0-alpha.1"
+                        )
+                    }
+                    return @()
+                }
+                
+                $result = Get-NextBuildNumber -SuffixType "alpha" -BaseVersion "1.0.0"
+                $result | Should -Be 6  # max(1,5,2) + 1 = 6
+            }
+        }
+        
+        It "Should handle different base versions separately" {
+            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "tag" -and $args[1] -eq "-l") {
+                        return @(
+                            "v1.0.0-beta.3",
+                            "v1.1.0-beta.1",
+                            "v2.0.0-beta.1"
+                        )
+                    }
+                    return @()
+                }
+                
+                $result = Get-NextBuildNumber -SuffixType "beta" -BaseVersion "1.0.0"
+                $result | Should -Be 4  # max(3) + 1 = 4
+            }
+        }
+        
+        It "Should return 1 for new suffix type with existing base version" {
+            InModuleScope -ModuleName "K.PSGallery.SemanticVersioning" {
+                Mock -CommandName "git" -MockWith {
+                    if ($args[0] -eq "tag" -and $args[1] -eq "-l") {
+                        return @(
+                            "v1.0.0",
+                            "v1.0.1",
+                            "v1.1.0"
+                        )
+                    }
+                    return @()
+                }
+                
+                $result = Get-NextBuildNumber -SuffixType "alpha" -BaseVersion "1.0.0"
+                $result | Should -Be 1  # No alpha tags found
+            }
+        }
+    }
+}
     }
 }

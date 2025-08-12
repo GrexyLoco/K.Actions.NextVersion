@@ -146,38 +146,90 @@ function Ensure-ModuleDependencies {
     return $true
 }
 
-# Ensure all dependencies are available
-$DependenciesLoaded = Ensure-ModuleDependencies
-if (-not $DependenciesLoaded) {
-    Write-SafeWarningLog "Some dependencies could not be loaded" "Module functionality may be limited"
+#region Import Display Functions
+
+function Show-ModuleImportStatus {
+    param(
+        [string]$ModuleName,
+        [array]$Messages,
+        [bool]$Success = $true,
+        [string]$ErrorMessage = ""
+    )
+    
+    # Choose color based on success/failure
+    $HeaderColor = if ($Success) { "Cyan" } else { "Red" }
+    $FooterColor = if ($Success) { "Cyan" } else { "Red" }
+    
+    # Display header box
+    Write-Host ""
+    Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor $HeaderColor
+    Write-Host "      $ModuleName - Module Import      " -ForegroundColor $HeaderColor
+    Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor $HeaderColor
+    Write-Host ""
+
+    # Display messages
+    foreach ($message in $Messages) {
+        Write-Host $message -ForegroundColor White
+    }
+    
+    # Display error if present
+    if (-not $Success -and $ErrorMessage) {
+        Write-Host ""
+        Write-Host "❌ Error: $ErrorMessage" -ForegroundColor Red
+    }
+
+    # Display footer box
+    Write-Host ""
+    if ($Success) {
+        Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor $FooterColor
+        Write-Host "                 🚀 Module ready for use! 🚀                " -ForegroundColor $FooterColor
+        Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor $FooterColor
+    } else {
+        Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor $FooterColor
+        Write-Host "                 ⚠️  Module import failed! ⚠️                " -ForegroundColor $FooterColor
+        Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor $FooterColor
+    }
+    Write-Host ""
 }
-#endregion
-
-# Dependencies are now loaded via Ensure-ModuleDependencies function above
-# LoggingModule functions are now available from PowerShell Gallery installation (if successful)
-
-Write-SafeTaskSuccessLog "All dependencies loaded successfully"
-
-#region Load Thematic Function Files
-
-# Dot-source the thematic function files following K.PSGallery.Github pattern
-Write-SafeInfoLog "Loading thematic function files"
-. $PSScriptRoot\K.PSGallery.SemanticVersioning.Git.ps1 -ErrorAction Stop
-. $PSScriptRoot\K.PSGallery.SemanticVersioning.Versioning.ps1 -ErrorAction Stop
-Write-SafeTaskSuccessLog "All thematic function files successfully loaded"
 
 #endregion
 
-#region Export Functions
+# Collect all import messages for final display
+$ImportMessages = [System.Collections.ArrayList]::new()
+$ImportSuccess = $true
+$ImportError = ""
 
-# Export the public functions defined in thematic files
-Export-ModuleMember -Function @(
-    'Get-NextSemanticVersion',
-    'Test-FirstReleaseVersion'
-)
+try {
+    # Ensure all dependencies are available
+    [void]$ImportMessages.Add("🔍 Checking module dependencies...")
+    $DependenciesLoaded = Ensure-ModuleDependencies
+    if (-not $DependenciesLoaded) {
+        [void]$ImportMessages.Add("⚠️  Some dependencies could not be loaded - functionality may be limited")
+        $ImportSuccess = $false
+        $ImportError = "Some dependencies could not be loaded"
+    } else {
+        [void]$ImportMessages.Add("✅ All dependencies loaded successfully")
+    }
 
-#endregion
+    # Load module function files
+    [void]$ImportMessages.Add("📦 Loading module function files...")
+    
+    . $PSScriptRoot\K.PSGallery.SemanticVersioning.Git.ps1 -ErrorAction Stop
+    [void]$ImportMessages.Add("   ✓ Git functions loaded")
+    
+    . $PSScriptRoot\K.PSGallery.SemanticVersioning.Versioning.ps1 -ErrorAction Stop
+    [void]$ImportMessages.Add("   ✓ Versioning functions loaded")
+    
+    [void]$ImportMessages.Add("🎯 Available functions:")
+    [void]$ImportMessages.Add("   • Get-NextSemanticVersion")
+    [void]$ImportMessages.Add("   • Get-FirstSemanticVersion")
+}
+catch {
+    [void]$ImportMessages.Add("❌ Error loading function files")
+    $ImportSuccess = $false
+    $ImportError = $_.Exception.Message
+}
 
-# Module initialization
-Write-SafeInfoLog "K.PSGallery.SemanticVersioning module loaded successfully"
-Write-SafeInfoLog "Available public functions: Get-NextSemanticVersion, Test-FirstReleaseVersion"
+# Display import status
+Show-ModuleImportStatus -ModuleName "K.PSGallery.SemanticVersioning" -Messages $ImportMessages -Success $ImportSuccess -ErrorMessage $ImportError
+
