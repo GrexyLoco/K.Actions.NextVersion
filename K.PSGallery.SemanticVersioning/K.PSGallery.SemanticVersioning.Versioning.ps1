@@ -13,22 +13,6 @@ function Handle-FirstRelease {
     return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType $firstReleaseResult.BumpType -NewVersion $firstReleaseResult.NewVersion -IsFirstRelease $true -GitContext $firstReleaseResult.GitContext
 }
 
-function Handle-ConsistencyCheck {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$CurrentVersion,
-        [Parameter(Mandatory = $true)]
-        [string]$LatestTag,
-        [Parameter(Mandatory = $false)]
-        [switch]$ForceVersionMismatch
-    )
-    $consistencyResult = Test-PSD1TagConsistency -PSD1Version $CurrentVersion -LatestTag $LatestTag -ForceVersionMismatch:$ForceVersionMismatch
-    if ($consistencyResult.RequiresAction) {
-        return New-VersionResultObject -CurrentVersion $CurrentVersion -BumpType "none" -NewVersion $CurrentVersion -LastReleaseTag $LatestTag -IsFirstRelease $false -Error $consistencyResult.Error -Instructions $consistencyResult.Instructions -GitContext $consistencyResult.Context
-    }
-    return $null
-}
-
 function New-VersionResultObject {
     param(
         [Parameter(Mandatory = $false)]
@@ -163,8 +147,7 @@ function Get-ValidManifestPath {
 function Test-PSD1TagConsistency {
     param (
         [string]$PSD1Version,
-        [string]$LatestTag,
-        [switch]$ForceVersionMismatch
+        [string]$LatestTag
     )
     if ([string]::IsNullOrEmpty($LatestTag)) {
         return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error $null -Instructions $null -GitContext @{ Consistency = "No tag found" }
@@ -176,22 +159,20 @@ function Test-PSD1TagConsistency {
     catch {
         return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error "Invalid version format in PSD1 or tag." -Instructions "Check ModuleVersion and tag format." -GitContext @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
     }
-    if ($psd1Ver -lt $tagVer -and -not $ForceVersionMismatch) {
+    if ($psd1Ver -lt $tagVer) {
         return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error "PSD1 version ($PSD1Version) is older than the latest tag ($LatestTag)." -Instructions @{
             Message  = "Please synchronize the versions."
             Options = @(
                 "Option 1: Set ModuleVersion in PSD1 to $LatestTag",
-                "Option 2: Delete/modify tags if intended",
-                "Option 3: Use -ForceVersionMismatch to intentionally go backwards (not recommended)"
+                "Option 2: Delete/modify tags if intended"
             )
         } -GitContext @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
     }
-    if ($psd1Ver -gt $tagVer -and -not $ForceVersionMismatch) {
+    if ($psd1Ver -gt $tagVer) {
         return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error "PSD1 version ($PSD1Version) is higher than the latest tag ($LatestTag)." -Instructions @{
             Message  = "Large version jump detected. Check if this is intended."
             Options = @(
-                "Option 1: Set ModuleVersion to $LatestTag for sequential releases",
-                "Option 2: Use -ForceVersionMismatch for intentional jump"
+                "Option 1: Set ModuleVersion to $LatestTag for sequential releases"
             )
         } -GitContext @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
     }
@@ -230,10 +211,6 @@ function Get-NextSemanticVersion {
     .PARAMETER TargetBranch
         Target branch for analyzing commits (usually main/master).
         If not specified, auto-discovers from Git remote branches.
-        
-    .PARAMETER ForceVersionMismatch
-        Bypasses validation warnings for version mismatches between PSD1 and Git tags.
-        Use when intentionally creating version jumps or going backwards in version numbers.
     
     .OUTPUTS
         PSCustomObject with the following properties:
@@ -262,14 +239,6 @@ function Get-NextSemanticVersion {
         
         Analyzes a specific manifest and branch for version calculation.
     
-    .EXAMPLE
-        $result = Get-NextSemanticVersion -ForceVersionMismatch
-        if ($result.ActionRequired) {
-            Write-Error $result.ActionInstructions
-        }
-        
-        Forces version mismatch analysis and checks for required actions.
-    
     .NOTES
         This function requires:
         - Git CLI available in PATH
@@ -289,10 +258,7 @@ function Get-NextSemanticVersion {
         [string]$BranchName = $env:GITHUB_REF_NAME,
         
         [Parameter(Mandatory = $false)]
-        [string]$TargetBranch,
-        
-        [Parameter(Mandatory = $false)]
-        [switch]$ForceVersionMismatch
+        [string]$TargetBranch
     )
     
     try {
@@ -322,7 +288,7 @@ function Get-NextSemanticVersion {
 
         # NEU: Validierung bei existierenden Tags
         if (-not $isFirstRelease) {
-            $consistencyResult = Test-PSD1TagConsistency -PSD1Version $currentVersionString -LatestTag $latestTag -ForceVersionMismatch:$ForceVersionMismatch
+            $consistencyResult = Test-PSD1TagConsistency -PSD1Version $currentVersionString -LatestTag $latestTag
             if ($consistencyResult.Error) {
                 return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType "none" -NewVersion $currentVersionString -LastReleaseTag $latestTag -IsFirstRelease $false -Error $consistencyResult.Error -Instructions $consistencyResult.Instructions -GitContext $consistencyResult.GitContext
             }

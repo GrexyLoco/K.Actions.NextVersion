@@ -52,15 +52,15 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
             Get-Command -Name "Get-NextSemanticVersion" | Should -Not -BeNullOrEmpty
         }
         
-        It "Should export Test-FirstReleaseVersion function" {
-            Get-Command -Name "Test-FirstReleaseVersion" | Should -Not -BeNullOrEmpty
+        It "Should export Get-FirstSemanticVersion function" {
+            Get-Command -Name "Get-FirstSemanticVersion" | Should -Not -BeNullOrEmpty
         }
     }
     
-    Context "Test-FirstReleaseVersion Function" {
+    Context "Get-FirstSemanticVersion Function" {
         
         It "Should accept standard version 0.0.0 without action required" {
-            $result = Test-FirstReleaseVersion -CurrentVersion "0.0.0" -BranchName "main" -ForceFirstRelease:$false
+            $result = Get-FirstSemanticVersion -CurrentVersion "0.0.0" -BranchName "main"
             
             $result.NewVersion | Should -Not -BeNullOrEmpty
             $result.Error | Should -BeNullOrEmpty
@@ -68,28 +68,20 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
         }
         
         It "Should accept standard version 1.0.0 without action required" {
-            $result = Test-FirstReleaseVersion -CurrentVersion "1.0.0" -BranchName "main" -ForceFirstRelease:$false
+            $result = Get-FirstSemanticVersion -CurrentVersion "1.0.0" -BranchName "main"
             
             $result.NewVersion | Should -Not -BeNullOrEmpty
             $result.Error | Should -BeNullOrEmpty
             $result.BumpType | Should -Match "(major|minor|patch)"
         }
         
-        It "Should require action for unusual version without force flag" {
-            $result = Test-FirstReleaseVersion -CurrentVersion "3.5.2" -BranchName "main" -ForceFirstRelease:$false
+        It "Should require action for unusual version" {
+            $result = Get-FirstSemanticVersion -CurrentVersion "3.5.2" -BranchName "main"
             
             $result.NewVersion | Should -Be "3.5.2"
             $result.Error | Should -Match "Unusual version"
             $result.BumpType | Should -Be "none"
             $result.Instructions | Should -Not -BeNullOrEmpty
-        }
-        
-        It "Should accept unusual version with force flag" {
-            $result = Test-FirstReleaseVersion -CurrentVersion "3.5.2" -BranchName "main" -ForceFirstRelease:$true
-            
-            $result.NewVersion | Should -Not -BeNullOrEmpty
-            $result.Error | Should -BeNullOrEmpty
-            $result.BumpType | Should -Match "(major|minor|patch)"
         }
     }
     
@@ -194,11 +186,11 @@ Describe "K.PSGallery.SemanticVersioning Module Tests" {
     
     Context "Integration Scenarios" {
         
-        It "Should work with ForceFirstRelease parameter" {
+        It "Should work with standard parameters" {
             $TestManifestPath = Join-Path $PSScriptRoot "TestModule.psd1"
             
-            # Test that ForceFirstRelease is passed through correctly
-            $result = Get-NextSemanticVersion -ManifestPath $TestManifestPath -BranchName "main" -TargetBranch "main" -ForceFirstRelease
+            # Test that the function works without obsolete parameters
+            $result = Get-NextSemanticVersion -ManifestPath $TestManifestPath -BranchName "main" -TargetBranch "main"
             
             # Should not throw and should process the version
             $result.CurrentVersion | Should -Be "1.2.3"
@@ -292,10 +284,9 @@ Describe "Version Mismatch Handling" {
                 $result.CurrentVersion | Should -Be "3.5.2"
                 $result.Error | Should -Match "Unusual version"
                 
-                # Test with force flag
-                $resultForced = Get-NextSemanticVersion -ManifestPath $manifestPath -BranchName "main" -ForceFirstRelease
-                $resultForced.Error | Should -BeNullOrEmpty
-                $resultForced.NewVersion | Should -Not -BeNullOrEmpty
+                # The new simplified API will always warn about unusual first release versions
+                # and provide clear guidance on how to fix them
+                $result.Instructions | Should -Not -BeNullOrEmpty
             }
             finally {
                 Remove-Item $manifestPath -Force -ErrorAction SilentlyContinue

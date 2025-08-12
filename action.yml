@@ -13,10 +13,6 @@ inputs:
     description: 'Target branch for release analysis (main/master). Auto-discovery if empty.'
     required: false
     default: ''
-  forceFirstRelease:
-    description: 'Force first release even with unusual PSD1 version. Use when migrating existing projects.'
-    required: false
-    default: 'false'
 
 outputs:
   currentVersion:
@@ -60,8 +56,7 @@ runs:
         $result = Get-NextSemanticVersion `
           -ManifestPath "${{ inputs.manifestPath }}" `
           -BranchName "${{ inputs.branchName }}" `
-          -TargetBranch "${{ inputs.targetBranch }}" `
-          -ForceFirstRelease:$${{ inputs.forceFirstRelease }}
+          -TargetBranch "${{ inputs.targetBranch }}"
 
         echo "currentVersion=$($result.CurrentVersion)" >> $env:GITHUB_OUTPUT
         echo "bumpType=$($result.BumpType)" >> $env:GITHUB_OUTPUT

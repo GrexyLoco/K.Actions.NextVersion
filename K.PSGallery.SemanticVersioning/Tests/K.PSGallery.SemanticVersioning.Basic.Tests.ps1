@@ -41,8 +41,8 @@ Describe "K.PSGallery.SemanticVersioning Basic Tests" {
             Get-Command -Name "Get-NextSemanticVersion" | Should -Not -BeNullOrEmpty
         }
         
-        It "Should export Test-FirstReleaseVersion function" {
-            Get-Command -Name "Test-FirstReleaseVersion" | Should -Not -BeNullOrEmpty
+        It "Should export Get-FirstSemanticVersion function" {
+            Get-Command -Name "Get-FirstSemanticVersion" | Should -Not -BeNullOrEmpty
         }
     }
     
@@ -50,7 +50,7 @@ Describe "K.PSGallery.SemanticVersioning Basic Tests" {
         It "Should return structured object with all required properties" {
             $TestManifestPath = Join-Path $PSScriptRoot "TestModule.psd1"
             
-            $result = Get-NextSemanticVersion -ManifestPath $TestManifestPath -BranchName "main" -ForceFirstRelease
+            $result = Get-NextSemanticVersion -ManifestPath $TestManifestPath -BranchName "main"
             
             # Verify all properties exist
             $result.PSObject.Properties.Name | Should -Contain "CurrentVersion"
@@ -66,7 +66,7 @@ Describe "K.PSGallery.SemanticVersioning Basic Tests" {
         It "Should load current version from manifest" {
             $TestManifestPath = Join-Path $PSScriptRoot "TestModule.psd1"
             
-            $result = Get-NextSemanticVersion -ManifestPath $TestManifestPath -BranchName "main" -ForceFirstRelease
+            $result = Get-NextSemanticVersion -ManifestPath $TestManifestPath -BranchName "main"
             
             $result.CurrentVersion | Should -Be "1.2.3"
         }
