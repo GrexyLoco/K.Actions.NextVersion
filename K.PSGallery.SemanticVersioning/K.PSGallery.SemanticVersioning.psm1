@@ -220,9 +220,15 @@ try {
     . $PSScriptRoot\K.PSGallery.SemanticVersioning.Versioning.ps1 -ErrorAction Stop
     [void]$ImportMessages.Add("   ✓ Versioning functions loaded")
     
+    . $PSScriptRoot\K.PSGallery.SemanticVersioning.MismatchHandling.ps1 -ErrorAction Stop
+    [void]$ImportMessages.Add("   ✓ Mismatch handling functions loaded")
+    
     [void]$ImportMessages.Add("🎯 Available functions:")
     [void]$ImportMessages.Add("   • Get-NextSemanticVersion")
     [void]$ImportMessages.Add("   • Get-FirstSemanticVersion")
+    [void]$ImportMessages.Add("   • Set-MismatchRecord")
+    [void]$ImportMessages.Add("   • Test-RecentMismatch")
+    [void]$ImportMessages.Add("   • Set-ForceSemanticVersion")
 }
 catch {
     [void]$ImportMessages.Add("❌ Error loading function files")

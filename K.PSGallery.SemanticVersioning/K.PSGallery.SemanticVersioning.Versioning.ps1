@@ -452,6 +452,28 @@ function Get-FirstSemanticVersion {
     $isStandardStart = ($version.ToString() -eq "0.0.0") -or ($version.ToString() -eq "1.0.0")
     if (-not $isStandardStart) {
         Write-SafeWarningLog -Message "Unusual PSD1 version detected for first release: $CurrentVersion"
+        
+        # Create mismatch record for potential force-release
+        try {
+            $mismatchRecord = Set-MismatchRecord -Version $CurrentVersion -BranchName $BranchName
+            Write-SafeInfoLog -Message "Mismatch record created: $($mismatchRecord.RecordId)"
+            
+            # Send notifications
+            $mismatchInfo = [PSCustomObject]@{
+                Version = $CurrentVersion
+                BranchName = $BranchName
+                Reason = "Unusual version for first release"
+                RecordId = $mismatchRecord.RecordId
+                ExpiresAt = $mismatchRecord.ExpiresAt
+            }
+            
+            $notificationResult = Send-MismatchNotification -MismatchInfo $mismatchInfo -NotificationChannels @("console", "summary")
+            Write-SafeDebugLog -Message "Notifications sent: $($notificationResult.SuccessfulChannels) successful, $($notificationResult.FailedChannels) failed"
+        }
+        catch {
+            Write-SafeErrorLog -Message "Failed to create mismatch record" -Context $_.Exception.Message
+        }
+        
         $rv = @{
             CurrentVersion = $CurrentVersion
             BumpType       = "none"
@@ -468,7 +490,7 @@ function Get-FirstSemanticVersion {
                 NextSteps       = @(
                     "Option 1: Set ModuleVersion = '0.0.0' in PSD1, then re-run",
                     "Option 2: Set ModuleVersion = '1.0.0' in PSD1, then re-run",
-                    "Option 3: Manually tag current state: git tag v$CurrentVersion"
+                    "Option 3: Use 'Force Version Release' workflow in GitHub Actions"
                 )
             }
         }
