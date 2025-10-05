@@ -6,7 +6,7 @@ inputs:
     required: false
     default: ''
   branchName:
-    description: 'Current branch name for analysis. Uses github.ref_name if empty.'
+    description: 'Current branch name for analysis. Uses ggggithub.ref_name if empty.'
     required: false
     default: ''
   targetBranch:
