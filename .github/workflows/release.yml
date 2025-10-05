@@ -37,7 +37,7 @@ jobs:
     needs: run-tests  # 🚨 CRITICAL: Release only after successful tests!
     if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && (needs.run-tests.outputs.test-success == 'true' || github.event.inputs.force-release == 'true')
     outputs:
-      next-version: ${{ steps.version.outputs.nextVersion }}
+      next-version: ${{ steps.version.outputs.newVersion }}
       target-branch: ${{ steps.version.outputs.targetBranch }}
       suffix: ${{ steps.version.outputs.suffix }}
       action-required: ${{ steps.version.outputs.actionRequired }}
@@ -54,13 +54,12 @@ jobs:
         with:
           manifestPath: './TestModule.psd1'
           branchName: ${{ github.ref_name }}
-          commitMessage: ${{ github.event.head_commit.message }}
 
       - name: 📋 Generate Release Summary
         shell: pwsh
         run: |
           $versionResults = @{
-            NextVersion = '${{ steps.version.outputs.nextVersion }}'
+            NextVersion = '${{ steps.version.outputs.newVersion }}'
             TargetBranch = '${{ steps.version.outputs.targetBranch }}'
             Suffix = '${{ steps.version.outputs.suffix }}'
             ActionRequired = '${{ steps.version.outputs.actionRequired }}'
@@ -78,8 +77,8 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git tag -a "v${{ steps.version.outputs.nextVersion }}" -m "Release v${{ steps.version.outputs.nextVersion }}"
-          git push origin "v${{ steps.version.outputs.nextVersion }}"
+          git tag -a "v${{ steps.version.outputs.newVersion }}" -m "Release v${{ steps.version.outputs.newVersion }}"
+          git push origin "v${{ steps.version.outputs.newVersion }}"
 
       - name: 📦 Create GitHub Release
         if: steps.version.outputs.actionRequired == 'true'
@@ -87,10 +86,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ steps.version.outputs.nextVersion }}
-          release_name: Release v${{ steps.version.outputs.nextVersion }}
+          tag_name: v${{ steps.version.outputs.newVersion }}
+          release_name: Release v${{ steps.version.outputs.newVersion }}
           body: |
-            ## 🚀 Release v${{ steps.version.outputs.nextVersion }}
+            ## 🚀 Release v${{ steps.version.outputs.newVersion }}
             
             ### ✅ Quality Assurance
             - 🧪 Tests Passed: ${{ needs.run-tests.outputs.passed-tests }}/${{ needs.run-tests.outputs.total-tests }}
