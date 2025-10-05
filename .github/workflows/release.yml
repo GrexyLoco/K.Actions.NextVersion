@@ -71,7 +71,7 @@ jobs:
             FailedTests = '${{ needs.run-tests.outputs.failed-tests }}'
             SkippedTests = '0'  # Release workflow doesn't run skipped tests
           }
-          & "./.github/scripts/New-GitHubSummary.ps1" -SummaryType 'release' -VersionResults $versionResults -TestResults $testResults
+          & "./.github/Scripts/New-GitHubSummary.ps1" -SummaryType 'release' -VersionResults $versionResults -TestResults $testResults
 
       - name: 🏷️ Create Git Tag
         if: steps.version.outputs.actionRequired == 'true'
