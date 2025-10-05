@@ -79,5 +79,5 @@ jobs:
         with:
           name: 🧪 Pester Test Results
           path: ${{ env.TEST_RESULTS_PATH }}
-          reporter: java-junit
+          reporter: dotnet-nunit
           fail-on-error: true
