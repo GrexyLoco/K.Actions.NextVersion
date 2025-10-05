@@ -18,7 +18,7 @@ $pesterConfig.Run.Path = $TestPath
 $pesterConfig.Run.PassThru = $true
 $pesterConfig.Output.Verbosity = 'Detailed'
 $pesterConfig.TestResult.Enabled = $true
-$pesterConfig.TestResult.OutputFormat = 'NUnitXml'
+$pesterConfig.TestResult.OutputFormat = 'JUnitXml'  # JUnit XML format - compatible with test-reporter
 $pesterConfig.TestResult.OutputPath = $OutputPath
 $pesterConfig.CodeCoverage.Enabled = $EnableCodeCoverage.IsPresent
 
