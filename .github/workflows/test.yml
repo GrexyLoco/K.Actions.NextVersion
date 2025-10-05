@@ -21,12 +21,6 @@ on:
         description: 'Number of failed tests'
         value: ${{ jobs.pester-tests.outputs.failed-tests }}
 
-# 🔐 Permissions for test-reporter to create check runs
-permissions:
-  contents: read
-  actions: read
-  checks: write
-
 # 🌍 Environment Configuration
 env:
   TEST_PATH: './K.PSGallery.SemanticVersioning/Tests'

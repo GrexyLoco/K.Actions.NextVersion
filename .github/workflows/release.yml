@@ -14,11 +14,21 @@ on:
         default: false
         type: boolean
 
+# 🔐 Permissions required for test-reporter and release creation
+permissions:
+  contents: write
+  actions: read
+  checks: write
+
 jobs:
   # 🧪 First run ALL tests - Release ONLY if tests pass!
   run-tests:
     name: 🧪 Run Test Suite
     uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+      actions: read
+      checks: write
     
   # 📦 Release job depends on successful tests
   version-and-release:
