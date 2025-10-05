@@ -20,7 +20,7 @@ $pesterConfig.Output.Verbosity = 'Detailed'
 $pesterConfig.TestResult.Enabled = $true
 $pesterConfig.TestResult.OutputFormat = 'NUnitXml'
 $pesterConfig.TestResult.OutputPath = $OutputPath
-$pesterConfig.CodeCoverage.Enabled = $EnableCodeCoverage
+$pesterConfig.CodeCoverage.Enabled = $EnableCodeCoverage.IsPresent
 
 # Run tests
 Write-Host "🚀 Starting Pester Tests..." -ForegroundColor Yellow
