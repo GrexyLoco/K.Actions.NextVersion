@@ -52,7 +52,6 @@ jobs:
         id: version
         uses: ./
         with:
-          manifestPath: './TestModule.psd1'
           branchName: ${{ github.ref_name }}
 
       - name: 📋 Generate Release Summary
