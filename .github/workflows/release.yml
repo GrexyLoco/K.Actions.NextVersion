@@ -1,124 +1,330 @@
-name: 🚀 Release K.Actions.NextVersion
+name: 🚀 GitHub Action Release Pipeline
 
+# 🎯 Triggers
+# - Push to master/main branches (excluding docs)
+# - Manual dispatch with release options
 on:
   push:
-    branches: [ master, main ]
+    branches: [master, main]
     paths-ignore:
       - '**.md'
       - 'docs/**'
   workflow_dispatch:
     inputs:
+      version:
+        description: '📌 Override version (e.g., 1.2.3, leave empty for auto-detection)'
+        required: false
+        type: string
+        default: ''
       force-release:
-        description: 'Force release even if no changes'
+        description: '🔄 Force release even if no changes'
         required: false
         default: false
         type: boolean
 
-# 🔐 Permissions required for test-reporter and release creation
+# Global permissions for the workflow
 permissions:
   contents: write
   actions: read
-  checks: write
+  pull-requests: read
+
+env:
+  # 🌍 Global Configuration
+  RELEASE_AUTHOR: "github-actions[bot]"
+  RELEASE_EMAIL: "github-actions[bot]@users.noreply.github.com"
+  UBUNTU_VERSION: ${{ vars.UBUNTU_VERSION || 'ubuntu-24.04' }}
 
 jobs:
-  # 🧪 First run ALL tests - Release ONLY if tests pass!
-  run-tests:
-    name: 🧪 Run Test Suite
-    uses: ./.github/workflows/test.yml
-    permissions:
-      contents: read
-      actions: read
-      checks: write
-    
-  # 📦 Release job depends on successful tests
-  version-and-release:
-    name: 📦 Version & Release
-    runs-on: ubuntu-latest
-    needs: run-tests  # 🚨 CRITICAL: Release only after successful tests!
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && (needs.run-tests.outputs.test-success == 'true' || github.event.inputs.force-release == 'true')
+  # ═══════════════════════════════════════════════════════════════════════════
+  # 🔐 JOB 1: QUALITY GATE - Security, Structure & Code Quality
+  # ═══════════════════════════════════════════════════════════════════════════
+  quality-gate:
+    name: 🔐 Quality Gate
+    runs-on: ${{ vars.UBUNTU_VERSION || 'ubuntu-24.04' }}
     outputs:
-      next-version: ${{ steps.version.outputs.newVersion }}
-      target-branch: ${{ steps.version.outputs.targetBranch }}
-      suffix: ${{ steps.version.outputs.suffix }}
-      action-required: ${{ steps.version.outputs.actionRequired }}
+      quality-success: ${{ steps.evaluate.outputs.quality-success }}
+      action-name: ${{ steps.discover-action.outputs.action-name }}
+      action-type: ${{ steps.discover-action.outputs.action-type }}
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🔍 Discover Action Metadata
+        id: discover-action
+        shell: pwsh
+        run: |
+          ./.github/scripts/Discover-ActionName.ps1
+
+      - name: 🔐 GitLeaks Security Scan
+        uses: zricethezav/gitleaks-action@v2.3.9
+        continue-on-error: true
+        id: gitleaks
+
+      - name: 📋 Validate Action Structure
+        id: validate-structure
+        shell: pwsh
+        run: |
+          ./.github/scripts/Test-ActionStructure.ps1
+
+      - name: 🎨 Lint PowerShell Scripts
+        id: lint
+        shell: pwsh
+        run: |
+          ./.github/scripts/Invoke-ScriptAnalyzer.ps1
+
+      - name: 📊 Evaluate Quality Gate
+        id: evaluate
+        shell: pwsh
+        run: |
+          ./.github/scripts/Invoke-QualityGateEvaluation.ps1 `
+            -GitLeaksOutcome '${{ steps.gitleaks.outcome }}' `
+            -StructureSuccess '${{ steps.validate-structure.outputs.structure-success }}' `
+            -SchemaSuccess '${{ steps.validate-structure.outputs.schema-success }}' `
+            -LintSuccess '${{ steps.lint.outputs.analysis-success }}' `
+            -ActionName '${{ steps.discover-action.outputs.action-name }}' `
+            -ActionType '${{ steps.discover-action.outputs.action-type }}' `
+            -ScriptsAnalyzed '${{ steps.lint.outputs.scripts-analyzed }}' `
+            -TotalErrors '${{ steps.lint.outputs.total-errors }}' `
+            -TotalWarnings '${{ steps.lint.outputs.total-warnings }}'
+
+      - name: 📋 Quality Gate Summary
+        if: always()
+        shell: pwsh
+        run: |
+          $gitleaksOk = '${{ steps.gitleaks.outcome }}' -eq 'success'
+          $structureOk = '${{ steps.validate-structure.outputs.structure-success }}' -eq 'true'
+          $schemaOk = '${{ steps.validate-structure.outputs.schema-success }}' -eq 'true'
+          $lintOk = '${{ steps.lint.outputs.analysis-success }}' -eq 'true'
+          $qualityOk = '${{ steps.evaluate.outputs.quality-success }}' -eq 'true'
+          
+          $actionName = '${{ steps.discover-action.outputs.action-name }}'
+          $actionType = '${{ steps.discover-action.outputs.action-type }}'
+          $scriptsAnalyzed = [int]'${{ steps.lint.outputs.scripts-analyzed }}'
+          $totalErrors = '${{ steps.lint.outputs.total-errors }}'
+          $totalWarnings = '${{ steps.lint.outputs.total-warnings }}'
+          
+          $overallStatus = if ($qualityOk) { '✅ **PASSED**' } else { '❌ **FAILED**' }
+          
+          # Linting result with warning for 0 scripts
+          $lintResult = if ($lintOk) { '✅ Passed' } else { '⚠️ Issues' }
+          $lintDetails = "$scriptsAnalyzed scripts, $totalErrors errors"
+          
+          $summary = @"
+          <details>
+          <summary>🔐 Quality Gate Results - $overallStatus</summary>
+          
+          | Check | Result | Details |
+          |-------|--------|---------|
+          | **🔒 Security** | $(if ($gitleaksOk) { '✅ Passed' } else { '⚠️ Issues' }) | GitLeaks secret scanning |
+          | **📋 Structure** | $(if ($structureOk) { '✅ Passed' } else { '❌ Failed' }) | action.yml validation |
+          | **📐 Schema** | $(if ($schemaOk) { '✅ Passed' } else { '⚠️ Skipped' }) | Action schema check |
+          | **🎨 Linting** | $lintResult | $lintDetails |
+          
+          "@
+          
+          # Add warning block if 0 scripts analyzed
+          if ($scriptsAnalyzed -eq 0) {
+            $summary += @"
+          
+          > ⚠️ **Note:** 0 scripts analyzed. This is valid if PowerShell code is embedded in ``action.yml`` (composite action).
+          > Excluded from discovery: ``.git/``, ``.github/scripts/``
+          
+          "@
+          }
+          
+          $summary += @"
+          
+          ### 🎯 Action Details
+          | Property | Value |
+          |----------|-------|
+          | **Name** | ``$actionName`` |
+          | **Type** | ``$actionType`` |
+          | **Warnings** | ``$totalWarnings`` |
+          | **Overall** | $overallStatus |
+          
+          </details>
+          
+          ---
+          "@
+          
+          Write-Output $summary >> $env:GITHUB_STEP_SUMMARY
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # 📦 JOB 2: PREPARE RELEASE - Version Detection
+  # ═══════════════════════════════════════════════════════════════════════════
+  prepare-release:
+    name: 📦 Prepare Release
+    needs: quality-gate
+    runs-on: ${{ vars.UBUNTU_VERSION || 'ubuntu-24.04' }}
+    if: |
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && 
+      needs.quality-gate.outputs.quality-success == 'true'
+    outputs:
+      new-version: ${{ steps.determine-version.outputs.final-version }}
+      should-release: ${{ steps.determine-version.outputs.should-release }}
+      bump-type: ${{ steps.determine-version.outputs.bump-type }}
+      current-version: ${{ steps.version.outputs.currentVersion }}
     
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🔍 Determine Next Version
+      - name: ⬆️ Analyze next version
         id: version
-        uses: ./
+        uses: GrexyLoco/K.Actions.NextActionVersion@master
         with:
           branchName: ${{ github.ref_name }}
 
-      - name: 📋 Generate Release Summary
+      - name: 🔢 Determine final version
+        id: determine-version
         shell: pwsh
         run: |
-          $versionResults = @{
-            NextVersion = '${{ steps.version.outputs.newVersion }}'
-            TargetBranch = '${{ steps.version.outputs.targetBranch }}'
-            Suffix = '${{ steps.version.outputs.suffix }}'
-            ActionRequired = '${{ steps.version.outputs.actionRequired }}'
-          }
-          $testResults = @{
-            TotalTests = '${{ needs.run-tests.outputs.total-tests }}'
-            PassedTests = '${{ needs.run-tests.outputs.passed-tests }}'
-            FailedTests = '${{ needs.run-tests.outputs.failed-tests }}'
-            SkippedTests = '0'  # Release workflow doesn't run skipped tests
-          }
-          & "./.github/Scripts/New-GitHubSummary.ps1" -SummaryType 'release' -VersionResults $versionResults -TestResults $testResults
+          ./.github/scripts/Determine-Version.ps1 `
+            -ManualVersion '${{ github.event.inputs.version }}' `
+            -AutoBumpType '${{ steps.version.outputs.bumpType }}' `
+            -AutoNewVersion '${{ steps.version.outputs.newVersion }}' `
+            -ForceRelease '${{ github.event.inputs.force-release }}'
 
-      - name: 🏷️ Create Git Tag
-        if: steps.version.outputs.actionRequired == 'true'
+      - name: 📋 Prepare Release Summary
+        if: always()
+        shell: pwsh
         run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git tag -a "v${{ steps.version.outputs.newVersion }}" -m "Release v${{ steps.version.outputs.newVersion }}"
-          git push origin "v${{ steps.version.outputs.newVersion }}"
+          $shouldRelease = '${{ steps.determine-version.outputs.should-release }}'
+          $version = '${{ steps.determine-version.outputs.final-version }}'
+          $bumpType = '${{ steps.determine-version.outputs.bump-type }}'
+          $currentVersion = '${{ steps.version.outputs.currentVersion }}'
+          
+          $statusIcon = if ($shouldRelease -eq 'true') { '✅ Ready' } else { 'ℹ️ No Release' }
+          $headerStatus = if ($shouldRelease -eq 'true') { '✅ Ready for Release' } else { 'ℹ️ No Release Required' }
+          
+          $summary = @"
+          <details>
+          <summary>📦 Prepare Release - $headerStatus</summary>
+          
+          | Property | Value |
+          |----------|-------|
+          | **Current Version** | ``$currentVersion`` |
+          | **New Version** | ``$version`` |
+          | **Bump Type** | ``$bumpType`` |
+          | **Status** | $statusIcon |
+          
+          "@
+          
+          if ($shouldRelease -ne 'true') {
+            $summary += @"
+          
+          > ℹ️ **No Release Required**
+          > No semantic version changes detected since last tag.
+          > Use manual workflow dispatch with ``force-release`` to create a release anyway.
+          
+          "@
+          }
+          
+          $summary += @"
+          
+          </details>
+          
+          ---
+          "@
+          
+          Write-Output $summary >> $env:GITHUB_STEP_SUMMARY
 
-      - name: 📦 Create GitHub Release
-        if: steps.version.outputs.actionRequired == 'true'
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ steps.version.outputs.newVersion }}
-          release_name: Release v${{ steps.version.outputs.newVersion }}
-          body: |
-            ## 🚀 Release v${{ steps.version.outputs.newVersion }}
-            
-            ### ✅ Quality Assurance
-            - 🧪 Tests Passed: ${{ needs.run-tests.outputs.passed-tests }}/${{ needs.run-tests.outputs.total-tests }}
-            - 🔄 Change Type: ${{ steps.version.outputs.suffix }}
-            - 🎯 Target Branch: ${{ steps.version.outputs.targetBranch }}
-            
-            ### 📋 Release Information
-            This release was automatically generated based on semantic versioning rules.
-            All quality gates have been passed successfully.
-            
-            **Branch**: `${{ github.ref_name }}`  
-            **Commit**: `${{ github.sha }}`  
-            **Triggered by**: @${{ github.actor }}
-          draft: false
-          prerelease: ${{ contains(steps.version.outputs.suffix, 'pre') || contains(steps.version.outputs.suffix, 'alpha') || contains(steps.version.outputs.suffix, 'beta') }}
-
-  # 📊 Post-Release Notification
-  notify-success:
-    name: 📢 Notify Success
-    runs-on: ubuntu-latest
-    needs: [run-tests, version-and-release]
-    if: success()
+  # ═══════════════════════════════════════════════════════════════════════════
+  # 🚀 JOB 3: GITHUB RELEASE - Tag, Smart Tags, Release
+  # ═══════════════════════════════════════════════════════════════════════════
+  github-release:
+    name: 🚀 GitHub Release
+    needs: [quality-gate, prepare-release]
+    if: needs.prepare-release.outputs.should-release == 'true'
+    runs-on: ${{ vars.UBUNTU_VERSION || 'ubuntu-24.04' }}
+    outputs:
+      release-created: ${{ steps.create-release.outputs.release-created }}
+      release-tag: ${{ steps.create-release.outputs.release-tag }}
+      release-url: ${{ steps.create-release.outputs.release-url }}
     
     steps:
-      - name: 🎉 Success Notification
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # 🚀 Create Complete Release (Draft → Smart Tags → Publish)
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: 🚀 Create GitHub Release
+        id: create-release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "## 🎉 Release Successful!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Version**: v${{ needs.version-and-release.outputs.next-version }}" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Tests**: ${{ needs.run-tests.outputs.passed-tests }}/${{ needs.run-tests.outputs.total-tests }} passed" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Quality Gates**: All checks passed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🚀 **Release is live and ready for use!**" >> $GITHUB_STEP_SUMMARY
+          ./.github/scripts/Create-GitHubRelease.ps1 `
+            -Version '${{ needs.prepare-release.outputs.new-version }}' `
+            -BumpType '${{ needs.prepare-release.outputs.bump-type }}' `
+            -ActionName '${{ needs.quality-gate.outputs.action-name }}' `
+            -Repository '${{ github.repository }}'
+
+      - name: 📋 Release Summary
+        if: always()
+        shell: pwsh
+        run: |
+          $version = '${{ needs.prepare-release.outputs.new-version }}'
+          $releaseUrl = '${{ steps.create-release.outputs.release-url }}'
+          $releaseCreated = '${{ steps.create-release.outputs.release-created }}'
+          $tagsCreated = '${{ steps.create-release.outputs.tags-created }}'
+          $actionName = '${{ needs.quality-gate.outputs.action-name }}'
+          $repository = '${{ github.repository }}'
+          
+          $statusIcon = if ($releaseCreated -eq 'true') { '✅ Published' } else { '❌ Failed' }
+          $headerStatus = if ($releaseCreated -eq 'true') { '✅ Published' } else { '❌ Failed' }
+          $majorVersion = $version.Split('.')[0]
+          $minorVersion = "$($version.Split('.')[0]).$($version.Split('.')[1])"
+          
+          # Parse tags created
+          $tagsList = if ($tagsCreated) { $tagsCreated -split ',' } else { @("v$version", "v$majorVersion", "v$minorVersion", 'latest') }
+          $tagsDisplay = ($tagsList | ForEach-Object { "``$_``" }) -join ', '
+          
+          $summary = @"
+          <details open>
+          <summary>🚀 GitHub Release - $headerStatus</summary>
+          
+          | Property | Value |
+          |----------|-------|
+          | **Version** | ``v$version`` |
+          | **Release Tag** | ``v$version`` |
+          | **Status** | $statusIcon |
+          | **Release** | [$releaseUrl]($releaseUrl) |
+          
+          ### 🏷️ Tags Created/Updated
+          
+          | Tag | Target | Description |
+          |-----|--------|-------------|
+          | ``v$version`` | HEAD | 📌 Pinned version (immutable) |
+          | ``v$minorVersion`` | → ``v$version`` | 🔄 Minor version (moves with patches) |
+          | ``v$majorVersion`` | → ``v$version`` | 🔄 Major version (moves with minor/patches) |
+          | ``latest`` | → ``v$version`` | 🔄 Always points to newest release |
+          
+          ### 📖 Usage Example
+          
+          ``````yaml
+          - name: $actionName
+            uses: $repository@v$version
+            with:
+              # Add your inputs here
+          ``````
+          
+          ### 🔗 Quick Reference
+          
+          | Reference | Usage | Description |
+          |-----------|-------|-------------|
+          | **Latest** | ``$repository@latest`` | Always newest version |
+          | **Pinned** | ``$repository@v$version`` | Exact version |
+          | **Major** | ``$repository@v$majorVersion`` | Auto-update within major |
+          
+          </details>
+          
+          ---
+          **🎉 Release pipeline complete!**
