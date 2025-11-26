@@ -53,7 +53,7 @@ jobs:
         id: discover-action
         shell: pwsh
         run: |
-          ./.github/scripts/Discover-ActionName.ps1
+          & "./.github/scripts/Discover-ActionName.ps1"
 
       - name: 🔐 GitLeaks Security Scan
         uses: zricethezav/gitleaks-action@v2.3.9
@@ -64,19 +64,19 @@ jobs:
         id: validate-structure
         shell: pwsh
         run: |
-          ./.github/scripts/Test-ActionStructure.ps1
+          & "./.github/scripts/Test-ActionStructure.ps1"
 
       - name: 🎨 Lint PowerShell Scripts
         id: lint
         shell: pwsh
         run: |
-          ./.github/scripts/Invoke-ScriptAnalyzer.ps1
+          & "./.github/scripts/Invoke-ScriptAnalyzer.ps1"
 
       - name: 📊 Evaluate Quality Gate
         id: evaluate
         shell: pwsh
         run: |
-          ./.github/scripts/Invoke-QualityGateEvaluation.ps1 `
+          & "./.github/scripts/Invoke-QualityGateEvaluation.ps1" `
             -GitLeaksOutcome '${{ steps.gitleaks.outcome }}' `
             -StructureSuccess '${{ steps.validate-structure.outputs.structure-success }}' `
             -SchemaSuccess '${{ steps.validate-structure.outputs.schema-success }}' `
@@ -182,7 +182,7 @@ jobs:
         id: determine-version
         shell: pwsh
         run: |
-          ./.github/scripts/Determine-Version.ps1 `
+          & "./.github/scripts/Determine-Version.ps1" `
             -ManualVersion '${{ github.event.inputs.version }}' `
             -AutoBumpType '${{ steps.version.outputs.bumpType }}' `
             -AutoNewVersion '${{ steps.version.outputs.newVersion }}' `
@@ -261,7 +261,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./.github/scripts/Create-GitHubRelease.ps1 `
+          & "./.github/scripts/Create-GitHubRelease.ps1" `
             -Version '${{ needs.prepare-release.outputs.new-version }}' `
             -BumpType '${{ needs.prepare-release.outputs.bump-type }}' `
             -ActionName '${{ needs.quality-gate.outputs.action-name }}' `
