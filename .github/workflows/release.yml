@@ -48,6 +48,8 @@ jobs:
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history required for GitLeaks commit scanning
 
       - name: 🔍 Discover Action Metadata
         id: discover-action
