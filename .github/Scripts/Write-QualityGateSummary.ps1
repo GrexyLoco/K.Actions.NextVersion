@@ -52,39 +52,51 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$GitLeaksOutcome,
+    [Parameter(Mandatory = $false)]
+    [string]$GitLeaksOutcome = 'skipped',
     
-    [Parameter(Mandatory = $true)]
-    [string]$StructureSuccess,
+    [Parameter(Mandatory = $false)]
+    [string]$StructureSuccess = 'false',
     
-    [Parameter(Mandatory = $true)]
-    [string]$SchemaSuccess,
+    [Parameter(Mandatory = $false)]
+    [string]$SchemaSuccess = 'false',
     
-    [Parameter(Mandatory = $true)]
-    [string]$LintSuccess,
+    [Parameter(Mandatory = $false)]
+    [string]$LintSuccess = 'false',
     
-    [Parameter(Mandatory = $true)]
-    [string]$QualitySuccess,
+    [Parameter(Mandatory = $false)]
+    [string]$QualitySuccess = 'false',
     
-    [Parameter(Mandatory = $true)]
-    [string]$ActionName,
+    [Parameter(Mandatory = $false)]
+    [string]$ActionName = 'Unknown',
     
-    [Parameter(Mandatory = $true)]
-    [string]$ActionType,
+    [Parameter(Mandatory = $false)]
+    [string]$ActionType = 'Unknown',
     
-    [Parameter(Mandatory = $true)]
-    [string]$ScriptsAnalyzed,
+    [Parameter(Mandatory = $false)]
+    [string]$ScriptsAnalyzed = '0',
     
-    [Parameter(Mandatory = $true)]
-    [string]$TotalErrors,
+    [Parameter(Mandatory = $false)]
+    [string]$TotalErrors = '0',
     
-    [Parameter(Mandatory = $true)]
-    [string]$TotalWarnings
+    [Parameter(Mandatory = $false)]
+    [string]$TotalWarnings = '0'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Handle empty/null values gracefully
+if ([string]::IsNullOrWhiteSpace($GitLeaksOutcome)) { $GitLeaksOutcome = 'skipped' }
+if ([string]::IsNullOrWhiteSpace($StructureSuccess)) { $StructureSuccess = 'false' }
+if ([string]::IsNullOrWhiteSpace($SchemaSuccess)) { $SchemaSuccess = 'false' }
+if ([string]::IsNullOrWhiteSpace($LintSuccess)) { $LintSuccess = 'false' }
+if ([string]::IsNullOrWhiteSpace($QualitySuccess)) { $QualitySuccess = 'false' }
+if ([string]::IsNullOrWhiteSpace($ActionName)) { $ActionName = 'Unknown' }
+if ([string]::IsNullOrWhiteSpace($ActionType)) { $ActionType = 'Unknown' }
+if ([string]::IsNullOrWhiteSpace($ScriptsAnalyzed)) { $ScriptsAnalyzed = '0' }
+if ([string]::IsNullOrWhiteSpace($TotalErrors)) { $TotalErrors = '0' }
+if ([string]::IsNullOrWhiteSpace($TotalWarnings)) { $TotalWarnings = '0' }
 
 $gitleaksOk = $GitLeaksOutcome -eq 'success'
 $structureOk = $StructureSuccess -eq 'true'

@@ -46,7 +46,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-Write-Host "Determining final version"
+Write-Information "Determining final version"
 
 $finalVersion = ''
 $bumpType = ''
@@ -57,14 +57,14 @@ if ($ManualVersion -and $ManualVersion -ne '') {
     $finalVersion = $ManualVersion.TrimStart('v')
     $bumpType = 'manual'
     $shouldRelease = $true
-    Write-Host "Using manual version: $finalVersion"
+    Write-Information "Using manual version: $finalVersion"
 }
 # Priority 2: Auto-detected version
 elseif ($AutoNewVersion -and $AutoNewVersion -ne '' -and $AutoBumpType -and $AutoBumpType -ne 'none') {
     $finalVersion = $AutoNewVersion.TrimStart('v')
     $bumpType = $AutoBumpType
     $shouldRelease = $true
-    Write-Host "Using auto-detected version: $finalVersion ($bumpType)"
+    Write-Information "Using auto-detected version: $finalVersion ($bumpType)"
 }
 # Priority 3: Force release with existing version
 elseif ($ForceRelease -eq 'true') {
@@ -81,18 +81,18 @@ elseif ($ForceRelease -eq 'true') {
     }
     $bumpType = 'force'
     $shouldRelease = $true
-    Write-Host "Force release: $finalVersion"
+    Write-Information "Force release: $finalVersion"
 }
 else {
-    Write-Host "No release required - no version changes detected"
+    Write-Information "No release required - no version changes detected"
     $shouldRelease = $false
     $finalVersion = $AutoNewVersion.TrimStart('v')
     $bumpType = 'none'
 }
 
-Write-Host "Final version: $finalVersion"
-Write-Host "Bump type: $bumpType"
-Write-Host "Should release: $shouldRelease"
+Write-Information "Final version: $finalVersion"
+Write-Information "Bump type: $bumpType"
+Write-Information "Should release: $shouldRelease"
 
 # Set outputs
 "final-version=$finalVersion" >> $env:GITHUB_OUTPUT

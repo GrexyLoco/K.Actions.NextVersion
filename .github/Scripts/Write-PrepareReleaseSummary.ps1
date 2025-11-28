@@ -37,17 +37,17 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$ShouldRelease,
+    [Parameter(Mandatory = $false)]
+    [string]$ShouldRelease = 'false',
     
-    [Parameter(Mandatory = $true)]
-    [string]$FinalVersion,
+    [Parameter(Mandatory = $false)]
+    [string]$FinalVersion = '',
     
-    [Parameter(Mandatory = $true)]
-    [string]$BumpType,
+    [Parameter(Mandatory = $false)]
+    [string]$BumpType = 'none',
     
-    [Parameter(Mandatory = $true)]
-    [string]$CurrentVersion,
+    [Parameter(Mandatory = $false)]
+    [string]$CurrentVersion = '',
     
     [Parameter(Mandatory = $false)]
     [string]$AutoBumpType = ''
@@ -55,6 +55,12 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Handle empty/null values gracefully
+if ([string]::IsNullOrWhiteSpace($ShouldRelease)) { $ShouldRelease = 'false' }
+if ([string]::IsNullOrWhiteSpace($FinalVersion)) { $FinalVersion = 'N/A' }
+if ([string]::IsNullOrWhiteSpace($BumpType)) { $BumpType = 'none' }
+if ([string]::IsNullOrWhiteSpace($CurrentVersion)) { $CurrentVersion = 'N/A' }
 
 $statusIcon = if ($ShouldRelease -eq 'true') { '✅ Ready' } else { 'ℹ️ No Release' }
 $headerStatus = if ($ShouldRelease -eq 'true') { '✅ Ready for Release' } else { 'ℹ️ No Release Required' }

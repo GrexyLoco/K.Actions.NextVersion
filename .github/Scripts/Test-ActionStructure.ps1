@@ -22,7 +22,7 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-Write-Host "Validating GitHub Action structure"
+Write-Information "Validating GitHub Action structure"
 
 $structureSuccess = $true
 $schemaSuccess = $true
@@ -38,7 +38,7 @@ if (-not $actionYml) {
     $structureSuccess = $false
     $errors += "action.yml not found in repository root"
 } else {
-    Write-Host "Found: $($actionYml.Name)"
+    Write-Information "Found: $($actionYml.Name)"
     
     $content = Get-Content -Path $actionYml.FullName -Raw
     
@@ -91,7 +91,7 @@ if ($errors.Count -gt 0) {
 "schema-success=$($schemaSuccess.ToString().ToLower())" >> $env:GITHUB_OUTPUT
 
 if ($structureSuccess -and $schemaSuccess) {
-    Write-Host "✅ Action structure validation passed"
+    Write-Information "✅ Action structure validation passed"
 } else {
     Write-Warning "⚠️ Action structure validation completed with issues"
 }

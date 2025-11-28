@@ -76,7 +76,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-Write-Host "Evaluating Quality Gate"
+Write-Information "Evaluating Quality Gate"
 
 # Evaluate each check
 $securityPassed = $GitLeaksOutcome -eq 'success'
@@ -92,12 +92,12 @@ $lintPassed = $LintSuccess -eq 'true'
 
 $qualitySuccess = $securityPassed -and $structurePassed -and $lintPassed
 
-Write-Host "Security:  $(if ($securityPassed) { '✅ PASS' } else { '❌ FAIL' })"
-Write-Host "Structure: $(if ($structurePassed) { '✅ PASS' } else { '❌ FAIL' })"
-Write-Host "Schema:    $(if ($schemaPassed) { '✅ PASS' } else { '⚠️ WARN' })"
-Write-Host "Linting:   $(if ($lintPassed) { '✅ PASS' } else { '❌ FAIL' })"
-Write-Host ""
-Write-Host "Quality Gate: $(if ($qualitySuccess) { '✅ PASSED' } else { '❌ FAILED' })"
+Write-Information "Security:  $(if ($securityPassed) { '✅ PASS' } else { '❌ FAIL' })"
+Write-Information "Structure: $(if ($structurePassed) { '✅ PASS' } else { '❌ FAIL' })"
+Write-Information "Schema:    $(if ($schemaPassed) { '✅ PASS' } else { '⚠️ WARN' })"
+Write-Information "Linting:   $(if ($lintPassed) { '✅ PASS' } else { '❌ FAIL' })"
+Write-Information ""
+Write-Information "Quality Gate: $(if ($qualitySuccess) { '✅ PASSED' } else { '❌ FAILED' })"
 
 # Set output
 "quality-success=$($qualitySuccess.ToString().ToLower())" >> $env:GITHUB_OUTPUT

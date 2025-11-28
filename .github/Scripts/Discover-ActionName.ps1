@@ -22,7 +22,7 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-Write-Host "Discovering action metadata from action.yml"
+Write-Information "Discovering action metadata from action.yml"
 
 # Find action.yml
 $actionYml = Get-ChildItem -Path . -Filter 'action.yml' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -36,7 +36,7 @@ if (-not $actionYml) {
     exit 1
 }
 
-Write-Host "Found: $($actionYml.FullName)"
+Write-Information "Found: $($actionYml.FullName)"
 
 # Parse action.yml
 $content = Get-Content -Path $actionYml.FullName -Raw
@@ -62,11 +62,11 @@ if ($content -match 'runs:\s*[\r\n]+\s*using:\s*[''"]?composite[''"]?') {
     $actionType = 'javascript'
 }
 
-Write-Host "Action Name: $actionName"
-Write-Host "Action Type: $actionType"
+Write-Information "Action Name: $actionName"
+Write-Information "Action Type: $actionType"
 
 # Set outputs
 "action-name=$actionName" >> $env:GITHUB_OUTPUT
 "action-type=$actionType" >> $env:GITHUB_OUTPUT
 
-Write-Host "✅ Action metadata discovered successfully"
+Write-Information "✅ Action metadata discovered successfully"

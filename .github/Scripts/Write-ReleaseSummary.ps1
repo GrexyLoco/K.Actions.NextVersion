@@ -39,26 +39,32 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$Version,
+    [Parameter(Mandatory = $false)]
+    [string]$Version = '',
     
     [Parameter(Mandatory = $false)]
     [string]$ReleaseUrl = '',
     
-    [Parameter(Mandatory = $true)]
-    [string]$ReleaseCreated,
+    [Parameter(Mandatory = $false)]
+    [string]$ReleaseCreated = 'false',
     
     [Parameter(Mandatory = $false)]
     [string]$TagsCreated = '',
     
-    [Parameter(Mandatory = $true)]
-    [string]$ActionName,
+    [Parameter(Mandatory = $false)]
+    [string]$ActionName = 'Unknown',
     
-    [Parameter(Mandatory = $true)]
-    [string]$Repository
+    [Parameter(Mandatory = $false)]
+    [string]$Repository = ''
 )
 
 Set-StrictMode -Version Latest
+
+# Handle empty/null values gracefully
+if ([string]::IsNullOrWhiteSpace($Version)) { $Version = 'N/A' }
+if ([string]::IsNullOrWhiteSpace($ReleaseCreated)) { $ReleaseCreated = 'false' }
+if ([string]::IsNullOrWhiteSpace($ActionName)) { $ActionName = 'Unknown' }
+if ([string]::IsNullOrWhiteSpace($Repository)) { $Repository = 'unknown/unknown' }
 $ErrorActionPreference = 'Stop'
 
 $statusIcon = if ($ReleaseCreated -eq 'true') { '✅ Published' } else { '❌ Failed' }
