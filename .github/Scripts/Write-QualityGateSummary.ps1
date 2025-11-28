@@ -1,0 +1,141 @@
+<#
+.SYNOPSIS
+    Generates a detailed summary for the Quality Gate job.
+
+.DESCRIPTION
+    Creates a comprehensive GitHub Step Summary showing:
+    - Security scan results (GitLeaks)
+    - Action structure validation
+    - Schema validation
+    - PowerShell linting results
+    - Action metadata (name, type)
+
+.PARAMETER GitLeaksOutcome
+    The outcome of the GitLeaks step ('success'/'failure').
+
+.PARAMETER StructureSuccess
+    Whether structure validation passed ('true'/'false').
+
+.PARAMETER SchemaSuccess
+    Whether schema validation passed ('true'/'false').
+
+.PARAMETER LintSuccess
+    Whether linting passed ('true'/'false').
+
+.PARAMETER QualitySuccess
+    Whether overall quality gate passed ('true'/'false').
+
+.PARAMETER ActionName
+    The name of the GitHub Action.
+
+.PARAMETER ActionType
+    The type of the action (composite/javascript/docker).
+
+.PARAMETER ScriptsAnalyzed
+    Number of PowerShell scripts analyzed.
+
+.PARAMETER TotalErrors
+    Total number of linting errors.
+
+.PARAMETER TotalWarnings
+    Total number of linting warnings.
+
+.OUTPUTS
+    Writes to GITHUB_STEP_SUMMARY.
+
+.EXAMPLE
+    ./Write-QualityGateSummary.ps1 -GitLeaksOutcome 'success' -StructureSuccess 'true' ...
+
+.NOTES
+    Platform-independent PowerShell script for GitHub Actions workflows.
+#>
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$GitLeaksOutcome,
+    
+    [Parameter(Mandatory = $true)]
+    [string]$StructureSuccess,
+    
+    [Parameter(Mandatory = $true)]
+    [string]$SchemaSuccess,
+    
+    [Parameter(Mandatory = $true)]
+    [string]$LintSuccess,
+    
+    [Parameter(Mandatory = $true)]
+    [string]$QualitySuccess,
+    
+    [Parameter(Mandatory = $true)]
+    [string]$ActionName,
+    
+    [Parameter(Mandatory = $true)]
+    [string]$ActionType,
+    
+    [Parameter(Mandatory = $true)]
+    [string]$ScriptsAnalyzed,
+    
+    [Parameter(Mandatory = $true)]
+    [string]$TotalErrors,
+    
+    [Parameter(Mandatory = $true)]
+    [string]$TotalWarnings
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$gitleaksOk = $GitLeaksOutcome -eq 'success'
+$structureOk = $StructureSuccess -eq 'true'
+$schemaOk = $SchemaSuccess -eq 'true'
+$lintOk = $LintSuccess -eq 'true'
+$qualityOk = $QualitySuccess -eq 'true'
+
+$scriptsCount = [int]$ScriptsAnalyzed
+
+$overallStatus = if ($qualityOk) { '✅ **PASSED**' } else { '❌ **FAILED**' }
+
+# Linting result with warning for 0 scripts
+$lintResult = if ($lintOk) { '✅ Passed' } else { '⚠️ Issues' }
+$lintDetails = "$scriptsCount scripts, $TotalErrors errors"
+
+$summary = @"
+<details>
+<summary>🔐 Quality Gate Results - $overallStatus</summary>
+
+| Check | Result | Details |
+|-------|--------|---------|
+| **🔒 Security** | $(if ($gitleaksOk) { '✅ Passed' } else { '⚠️ Issues' }) | GitLeaks secret scanning |
+| **📋 Structure** | $(if ($structureOk) { '✅ Passed' } else { '❌ Failed' }) | action.yml validation |
+| **📐 Schema** | $(if ($schemaOk) { '✅ Passed' } else { '⚠️ Skipped' }) | Action schema check |
+| **🎨 Linting** | $lintResult | $lintDetails |
+
+"@
+
+# Add warning block if 0 scripts analyzed
+if ($scriptsCount -eq 0) {
+    $summary += @"
+
+> ⚠️ **Note:** 0 scripts analyzed. This is valid if PowerShell code is embedded in ``action.yml`` (composite action).
+> Excluded from discovery: ``.git/``, ``.github/scripts/``
+
+"@
+}
+
+$summary += @"
+
+### 🎯 Action Details
+| Property | Value |
+|----------|-------|
+| **Name** | ``$ActionName`` |
+| **Type** | ``$ActionType`` |
+| **Warnings** | ``$TotalWarnings`` |
+| **Overall** | $overallStatus |
+
+</details>
+
+---
+"@
+
+Write-Output $summary >> $env:GITHUB_STEP_SUMMARY

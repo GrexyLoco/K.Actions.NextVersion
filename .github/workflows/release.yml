@@ -91,63 +91,17 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $gitleaksOk = '${{ steps.gitleaks.outcome }}' -eq 'success'
-          $structureOk = '${{ steps.validate-structure.outputs.structure-success }}' -eq 'true'
-          $schemaOk = '${{ steps.validate-structure.outputs.schema-success }}' -eq 'true'
-          $lintOk = '${{ steps.lint.outputs.analysis-success }}' -eq 'true'
-          $qualityOk = '${{ steps.evaluate.outputs.quality-success }}' -eq 'true'
-          
-          $actionName = '${{ steps.discover-action.outputs.action-name }}'
-          $actionType = '${{ steps.discover-action.outputs.action-type }}'
-          $scriptsAnalyzed = [int]'${{ steps.lint.outputs.scripts-analyzed }}'
-          $totalErrors = '${{ steps.lint.outputs.total-errors }}'
-          $totalWarnings = '${{ steps.lint.outputs.total-warnings }}'
-          
-          $overallStatus = if ($qualityOk) { '✅ **PASSED**' } else { '❌ **FAILED**' }
-          
-          # Linting result with warning for 0 scripts
-          $lintResult = if ($lintOk) { '✅ Passed' } else { '⚠️ Issues' }
-          $lintDetails = "$scriptsAnalyzed scripts, $totalErrors errors"
-          
-          $summary = @"
-          <details>
-          <summary>🔐 Quality Gate Results - $overallStatus</summary>
-          
-          | Check | Result | Details |
-          |-------|--------|---------|
-          | **🔒 Security** | $(if ($gitleaksOk) { '✅ Passed' } else { '⚠️ Issues' }) | GitLeaks secret scanning |
-          | **📋 Structure** | $(if ($structureOk) { '✅ Passed' } else { '❌ Failed' }) | action.yml validation |
-          | **📐 Schema** | $(if ($schemaOk) { '✅ Passed' } else { '⚠️ Skipped' }) | Action schema check |
-          | **🎨 Linting** | $lintResult | $lintDetails |
-          
-          "@
-          
-          # Add warning block if 0 scripts analyzed
-          if ($scriptsAnalyzed -eq 0) {
-            $summary += @"
-          
-          > ⚠️ **Note:** 0 scripts analyzed. This is valid if PowerShell code is embedded in ``action.yml`` (composite action).
-          > Excluded from discovery: ``.git/``, ``.github/scripts/``
-          
-          "@
-          }
-          
-          $summary += @"
-          
-          ### 🎯 Action Details
-          | Property | Value |
-          |----------|-------|
-          | **Name** | ``$actionName`` |
-          | **Type** | ``$actionType`` |
-          | **Warnings** | ``$totalWarnings`` |
-          | **Overall** | $overallStatus |
-          
-          </details>
-          
-          ---
-          "@
-          
-          Write-Output $summary >> $env:GITHUB_STEP_SUMMARY
+          & "./.github/scripts/Write-QualityGateSummary.ps1" `
+            -GitLeaksOutcome '${{ steps.gitleaks.outcome }}' `
+            -StructureSuccess '${{ steps.validate-structure.outputs.structure-success }}' `
+            -SchemaSuccess '${{ steps.validate-structure.outputs.schema-success }}' `
+            -LintSuccess '${{ steps.lint.outputs.analysis-success }}' `
+            -QualitySuccess '${{ steps.evaluate.outputs.quality-success }}' `
+            -ActionName '${{ steps.discover-action.outputs.action-name }}' `
+            -ActionType '${{ steps.discover-action.outputs.action-type }}' `
+            -ScriptsAnalyzed '${{ steps.lint.outputs.scripts-analyzed }}' `
+            -TotalErrors '${{ steps.lint.outputs.total-errors }}' `
+            -TotalWarnings '${{ steps.lint.outputs.total-warnings }}'
 
   # ═══════════════════════════════════════════════════════════════════════════
   # 📦 JOB 2: PREPARE RELEASE - Version Detection
@@ -192,45 +146,12 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $shouldRelease = '${{ steps.determine-version.outputs.should-release }}'
-          $version = '${{ steps.determine-version.outputs.final-version }}'
-          $bumpType = '${{ steps.determine-version.outputs.bump-type }}'
-          $currentVersion = '${{ steps.version.outputs.currentVersion }}'
-          
-          $statusIcon = if ($shouldRelease -eq 'true') { '✅ Ready' } else { 'ℹ️ No Release' }
-          $headerStatus = if ($shouldRelease -eq 'true') { '✅ Ready for Release' } else { 'ℹ️ No Release Required' }
-          
-          $summary = @"
-          <details>
-          <summary>📦 Prepare Release - $headerStatus</summary>
-          
-          | Property | Value |
-          |----------|-------|
-          | **Current Version** | ``$currentVersion`` |
-          | **New Version** | ``$version`` |
-          | **Bump Type** | ``$bumpType`` |
-          | **Status** | $statusIcon |
-          
-          "@
-          
-          if ($shouldRelease -ne 'true') {
-            $summary += @"
-          
-          > ℹ️ **No Release Required**
-          > No semantic version changes detected since last tag.
-          > Use manual workflow dispatch with ``force-release`` to create a release anyway.
-          
-          "@
-          }
-          
-          $summary += @"
-          
-          </details>
-          
-          ---
-          "@
-          
-          Write-Output $summary >> $env:GITHUB_STEP_SUMMARY
+          & "./.github/scripts/Write-PrepareReleaseSummary.ps1" `
+            -ShouldRelease '${{ steps.determine-version.outputs.should-release }}' `
+            -FinalVersion '${{ steps.determine-version.outputs.final-version }}' `
+            -BumpType '${{ steps.determine-version.outputs.bump-type }}' `
+            -CurrentVersion '${{ steps.version.outputs.currentVersion }}' `
+            -AutoBumpType '${{ steps.version.outputs.bumpType }}'
 
   # ═══════════════════════════════════════════════════════════════════════════
   # 🚀 JOB 3: GITHUB RELEASE - Tag, Smart Tags, Release
@@ -271,60 +192,10 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $version = '${{ needs.prepare-release.outputs.new-version }}'
-          $releaseUrl = '${{ steps.create-release.outputs.release-url }}'
-          $releaseCreated = '${{ steps.create-release.outputs.release-created }}'
-          $tagsCreated = '${{ steps.create-release.outputs.tags-created }}'
-          $actionName = '${{ needs.quality-gate.outputs.action-name }}'
-          $repository = '${{ github.repository }}'
-          
-          $statusIcon = if ($releaseCreated -eq 'true') { '✅ Published' } else { '❌ Failed' }
-          $headerStatus = if ($releaseCreated -eq 'true') { '✅ Published' } else { '❌ Failed' }
-          $majorVersion = $version.Split('.')[0]
-          $minorVersion = "$($version.Split('.')[0]).$($version.Split('.')[1])"
-          
-          # Parse tags created
-          $tagsList = if ($tagsCreated) { $tagsCreated -split ',' } else { @("v$version", "v$majorVersion", "v$minorVersion", 'latest') }
-          $tagsDisplay = ($tagsList | ForEach-Object { "``$_``" }) -join ', '
-          
-          $summary = @"
-          <details open>
-          <summary>🚀 GitHub Release - $headerStatus</summary>
-          
-          | Property | Value |
-          |----------|-------|
-          | **Version** | ``v$version`` |
-          | **Release Tag** | ``v$version`` |
-          | **Status** | $statusIcon |
-          | **Release** | [$releaseUrl]($releaseUrl) |
-          
-          ### 🏷️ Tags Created/Updated
-          
-          | Tag | Target | Description |
-          |-----|--------|-------------|
-          | ``v$version`` | HEAD | 📌 Pinned version (immutable) |
-          | ``v$minorVersion`` | → ``v$version`` | 🔄 Minor version (moves with patches) |
-          | ``v$majorVersion`` | → ``v$version`` | 🔄 Major version (moves with minor/patches) |
-          | ``latest`` | → ``v$version`` | 🔄 Always points to newest release |
-          
-          ### 📖 Usage Example
-          
-          ``````yaml
-          - name: $actionName
-            uses: $repository@v$version
-            with:
-              # Add your inputs here
-          ``````
-          
-          ### 🔗 Quick Reference
-          
-          | Reference | Usage | Description |
-          |-----------|-------|-------------|
-          | **Latest** | ``$repository@latest`` | Always newest version |
-          | **Pinned** | ``$repository@v$version`` | Exact version |
-          | **Major** | ``$repository@v$majorVersion`` | Auto-update within major |
-          
-          </details>
-          
-          ---
-          **🎉 Release pipeline complete!**
+          & "./.github/scripts/Write-ReleaseSummary.ps1" `
+            -Version '${{ needs.prepare-release.outputs.new-version }}' `
+            -ReleaseUrl '${{ steps.create-release.outputs.release-url }}' `
+            -ReleaseCreated '${{ steps.create-release.outputs.release-created }}' `
+            -TagsCreated '${{ steps.create-release.outputs.tags-created }}' `
+            -ActionName '${{ needs.quality-gate.outputs.action-name }}' `
+            -Repository '${{ github.repository }}'
