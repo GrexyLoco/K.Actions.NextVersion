@@ -199,3 +199,47 @@ jobs:
             -TagsCreated '${{ steps.create-release.outputs.tags-created }}' `
             -ActionName '${{ needs.quality-gate.outputs.action-name }}' `
             -Repository '${{ github.repository }}'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # 🏷️ JOB 4: UPDATE README BADGES - Always update badges to reflect current status
+  # ═══════════════════════════════════════════════════════════════════════════
+  update-readme-badges:
+    name: 🏷️ Update README Badges
+    needs: [quality-gate, prepare-release, github-release]
+    if: always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ${{ vars.UBUNTU_VERSION || 'ubuntu-24.04' }}
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Update README Badges
+        id: update-badges
+        shell: pwsh
+        run: |
+          & "./.github/scripts/Update-ReadmeBadges.ps1" `
+            -QualitySuccess '${{ needs.quality-gate.outputs.quality-success }}' `
+            -ReleaseSuccess '${{ needs.github-release.outputs.release-created }}' `
+            -ReleaseVersion '${{ needs.github-release.outputs.release-tag }}' `
+            -ActionName '${{ needs.quality-gate.outputs.action-name }}' `
+            -Repository '${{ github.repository }}'
+
+      - name: 📤 Commit Badge Updates
+        if: steps.update-badges.outputs.badges-updated == 'true'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "${{ env.RELEASE_AUTHOR }}"
+          git config user.email "${{ env.RELEASE_EMAIL }}"
+          
+          $version = '${{ needs.github-release.outputs.release-tag }}'
+          $message = if ($version) { "📛 Update badges for $version" } else { "📛 Update status badges" }
+          
+          git add README.md
+          git commit -m $message
+          git push
+          Write-Host "✅ Badge updates committed and pushed"
