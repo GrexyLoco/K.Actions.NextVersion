@@ -77,7 +77,7 @@ jobs:
         shell: pwsh
         run: |
           & "./.github/scripts/Invoke-QualityGateEvaluation.ps1" `
-            -GitLeaksOutcome '${{ steps.gitleaks.outcome }}' `
+            -GitLeaksOutcome '${{ steps.gitleaks.conclusion }}' `
             -StructureSuccess '${{ steps.validate-structure.outputs.structure-success }}' `
             -SchemaSuccess '${{ steps.validate-structure.outputs.schema-success }}' `
             -LintSuccess '${{ steps.lint.outputs.analysis-success }}' `
@@ -92,7 +92,7 @@ jobs:
         shell: pwsh
         run: |
           & "./.github/scripts/Write-QualityGateSummary.ps1" `
-            -GitLeaksOutcome '${{ steps.gitleaks.outcome }}' `
+            -GitLeaksOutcome '${{ steps.gitleaks.conclusion }}' `
             -StructureSuccess '${{ steps.validate-structure.outputs.structure-success }}' `
             -SchemaSuccess '${{ steps.validate-structure.outputs.schema-success }}' `
             -LintSuccess '${{ steps.lint.outputs.analysis-success }}' `
@@ -208,6 +208,7 @@ jobs:
     needs: [quality-gate, prepare-release, github-release]
     if: always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ${{ vars.UBUNTU_VERSION || 'ubuntu-24.04' }}
+    continue-on-error: true  # Badge updates should not fail the pipeline
     
     steps:
       - name: 📥 Checkout Repository
