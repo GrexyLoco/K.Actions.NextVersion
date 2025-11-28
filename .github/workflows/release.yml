@@ -77,7 +77,7 @@ jobs:
         shell: pwsh
         run: |
           & "./.github/scripts/Invoke-QualityGateEvaluation.ps1" `
-            -GitLeaksOutcome '${{ steps.gitleaks.conclusion }}' `
+            -GitLeaksOutcome '${{ steps.gitleaks.outcome }}' `
             -StructureSuccess '${{ steps.validate-structure.outputs.structure-success }}' `
             -SchemaSuccess '${{ steps.validate-structure.outputs.schema-success }}' `
             -LintSuccess '${{ steps.lint.outputs.analysis-success }}' `
@@ -92,7 +92,7 @@ jobs:
         shell: pwsh
         run: |
           & "./.github/scripts/Write-QualityGateSummary.ps1" `
-            -GitLeaksOutcome '${{ steps.gitleaks.conclusion }}' `
+            -GitLeaksOutcome '${{ steps.gitleaks.outcome }}' `
             -StructureSuccess '${{ steps.validate-structure.outputs.structure-success }}' `
             -SchemaSuccess '${{ steps.validate-structure.outputs.schema-success }}' `
             -LintSuccess '${{ steps.lint.outputs.analysis-success }}' `

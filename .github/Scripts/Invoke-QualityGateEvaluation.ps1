@@ -76,13 +76,19 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-Write-Information "Evaluating Quality Gate"
+Write-Host "Evaluating Quality Gate"
+Write-Host "GitLeaksOutcome value: '$GitLeaksOutcome'"
+Write-Host "StructureSuccess value: '$StructureSuccess'"
+Write-Host "SchemaSuccess value: '$SchemaSuccess'"
+Write-Host "LintSuccess value: '$LintSuccess'"
 
 # Evaluate each check
 $securityPassed = $GitLeaksOutcome -eq 'success'
 $structurePassed = $StructureSuccess -eq 'true'
 $schemaPassed = $SchemaSuccess -eq 'true'
 $lintPassed = $LintSuccess -eq 'true'
+
+Write-Host "securityPassed evaluation: '$GitLeaksOutcome' -eq 'success' = $securityPassed"
 
 # Quality gate rules:
 # - Security: MUST pass (critical)
@@ -92,12 +98,13 @@ $lintPassed = $LintSuccess -eq 'true'
 
 $qualitySuccess = $securityPassed -and $structurePassed -and $lintPassed
 
-Write-Information "Security:  $(if ($securityPassed) { '✅ PASS' } else { '❌ FAIL' })"
-Write-Information "Structure: $(if ($structurePassed) { '✅ PASS' } else { '❌ FAIL' })"
-Write-Information "Schema:    $(if ($schemaPassed) { '✅ PASS' } else { '⚠️ WARN' })"
-Write-Information "Linting:   $(if ($lintPassed) { '✅ PASS' } else { '❌ FAIL' })"
-Write-Information ""
-Write-Information "Quality Gate: $(if ($qualitySuccess) { '✅ PASSED' } else { '❌ FAILED' })"
+Write-Host ""
+Write-Host "Security:  $(if ($securityPassed) { '✅ PASS' } else { '❌ FAIL' }) (GitLeaksOutcome='$GitLeaksOutcome')"
+Write-Host "Structure: $(if ($structurePassed) { '✅ PASS' } else { '❌ FAIL' }) (StructureSuccess='$StructureSuccess')"
+Write-Host "Schema:    $(if ($schemaPassed) { '✅ PASS' } else { '⚠️ WARN' }) (SchemaSuccess='$SchemaSuccess')"
+Write-Host "Linting:   $(if ($lintPassed) { '✅ PASS' } else { '❌ FAIL' }) (LintSuccess='$LintSuccess')"
+Write-Host ""
+Write-Host "Quality Gate: $(if ($qualitySuccess) { '✅ PASSED' } else { '❌ FAILED' })"
 
 # Set output
 "quality-success=$($qualitySuccess.ToString().ToLower())" >> $env:GITHUB_OUTPUT
