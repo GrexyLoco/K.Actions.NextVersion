@@ -61,6 +61,16 @@ $readmePath = "README.md"
 $startMarker = "<!-- AUTO-GENERATED BADGES - DO NOT EDIT MANUALLY -->"
 $endMarker = "<!-- END AUTO-GENERATED BADGES -->"
 
+# Legacy markers to also detect and replace
+$legacyStartMarkers = @(
+    "<!-- AUTO-GENERATED TEST BADGES - DO NOT EDIT MANUALLY -->",
+    "<!-- AUTO-GENERATED STATUS BADGES -->"
+)
+$legacyEndMarkers = @(
+    "<!-- END AUTO-GENERATED TEST BADGES -->",
+    "<!-- END AUTO-GENERATED STATUS BADGES -->"
+)
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 📋 Functions
 # ═══════════════════════════════════════════════════════════════════════════
@@ -148,6 +158,24 @@ Write-Host "  Release: $(if ($releaseOk) { "✅ $ReleaseVersion" } else { '⏭�
 
 # Read current README
 $content = Get-Content $readmePath -Raw
+
+# First, replace any legacy markers with current markers
+foreach ($legacyStart in $legacyStartMarkers) {
+    if ($content -match [regex]::Escape($legacyStart)) {
+        Write-Host "🔄 Found legacy start marker, will be replaced" -ForegroundColor Yellow
+        # Find corresponding legacy end marker and replace entire section
+        foreach ($legacyEnd in $legacyEndMarkers) {
+            $legacyPattern = [regex]::Escape($legacyStart) + "[\s\S]*?" + [regex]::Escape($legacyEnd)
+            if ($content -match $legacyPattern) {
+                # Remove the legacy section entirely - it will be replaced with new section
+                $content = $content -replace $legacyPattern, ""
+                $content = $content -replace '\n{3,}', "`n`n"  # Clean up extra newlines
+                Write-Host "✅ Removed legacy badge section" -ForegroundColor Green
+                break
+            }
+        }
+    }
+}
 
 # Generate new badge section
 $newSection = New-BadgeSection `
