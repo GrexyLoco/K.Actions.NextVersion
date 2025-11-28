@@ -1,5 +1,13 @@
 # K.Actions.NextVersion
 
+<!-- AUTO-GENERATED BADGES - DO NOT EDIT MANUALLY -->
+## 📊 Status
+
+![Quality Gate](https://img.shields.io/badge/Quality_Gate-passing-brightgreen?logo=githubactions) ![Release](https://img.shields.io/badge/Release-v1.1.0-blue?logo=github) [![CI](https://github.com/GrexyLoco/K.Actions.NextVersion/actions/workflows/release.yml/badge.svg)](https://github.com/GrexyLoco/K.Actions.NextVersion/actions/workflows/release.yml)
+
+> 🕐 **Last Updated:** 2025-11-28 21:24:12 UTC | **Action:** `K.Actions.NextVersion - Release-based Semantic Versioning`
+<!-- END AUTO-GENERATED BADGES -->
+
 🚀 **Release-based Semantic Versioning Action** für PowerShell Module mit intelligenter Hybrid-Logik für erste Releases.
 
 ## 🌟 Features
