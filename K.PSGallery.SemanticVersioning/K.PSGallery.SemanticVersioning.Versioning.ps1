@@ -502,18 +502,61 @@ function Get-FirstSemanticVersion {
 
     # Default to patch bump
     $gitBumpType = "patch"
+    $bumpIndicators = @()
     try {
         # Alle Commits holen
         $commits = & git log --oneline --all 2>$null
         if ($LASTEXITCODE -eq 0 -and $commits) {
-            $commitText = $commits -join " "
-            if ($commitText -match "BREAKING|MAJOR|breaking change") {
+            # Find specific commits that trigger bump types
+            $majorPatterns = @("BREAKING", "MAJOR", "breaking change", "!:")
+            $minorPatterns = @("FEATURE", "MINOR", "feat:", "feat(", "feature:", "add:", "new:")
+            
+            foreach ($commit in $commits) {
+                # Check for MAJOR indicators
+                foreach ($pattern in $majorPatterns) {
+                    if ($commit -match [regex]::Escape($pattern)) {
+                        $bumpIndicators += @{ Type = "major"; Commit = $commit; Pattern = $pattern }
+                    }
+                }
+                # Check for MINOR indicators (only if no major found yet in this commit)
+                if (-not ($bumpIndicators | Where-Object { $_.Commit -eq $commit -and $_.Type -eq "major" })) {
+                    foreach ($pattern in $minorPatterns) {
+                        if ($commit -match [regex]::Escape($pattern)) {
+                            $bumpIndicators += @{ Type = "minor"; Commit = $commit; Pattern = $pattern }
+                            break  # One minor match per commit is enough
+                        }
+                    }
+                }
+            }
+            
+            # Determine bump type based on indicators
+            $majorIndicators = $bumpIndicators | Where-Object { $_.Type -eq "major" }
+            $minorIndicators = $bumpIndicators | Where-Object { $_.Type -eq "minor" }
+            
+            if ($majorIndicators) {
                 $gitBumpType = "major"
                 Write-SafeInfoLog -Message "Found BREAKING/MAJOR indicators in git history"
+                Write-SafeDebugLog -Message "Major bump triggered by $($majorIndicators.Count) commit(s):"
+                $majorIndicators | Select-Object -First 3 | ForEach-Object {
+                    Write-SafeDebugLog -Message "  → [$($_.Pattern)] $($_.Commit)"
+                }
+                if ($majorIndicators.Count -gt 3) {
+                    Write-SafeDebugLog -Message "  ... and $($majorIndicators.Count - 3) more"
+                }
             }
-            elseif ($commitText -match "FEATURE|MINOR|feat:|feature:") {
+            elseif ($minorIndicators) {
                 $gitBumpType = "minor"
                 Write-SafeInfoLog -Message "Found FEATURE/MINOR indicators in git history"
+                Write-SafeDebugLog -Message "Minor bump triggered by $($minorIndicators.Count) commit(s):"
+                $minorIndicators | Select-Object -First 5 | ForEach-Object {
+                    Write-SafeDebugLog -Message "  → [$($_.Pattern)] $($_.Commit)"
+                }
+                if ($minorIndicators.Count -gt 5) {
+                    Write-SafeDebugLog -Message "  ... and $($minorIndicators.Count - 5) more"
+                }
+            }
+            else {
+                Write-SafeDebugLog -Message "No bump indicators found in commits, defaulting to patch"
             }
         }
     }
@@ -523,9 +566,14 @@ function Get-FirstSemanticVersion {
 
     # Branchname berücksichtigen
     $branchBumpType = Get-VersionBumpType -BranchName $BranchName
+    Write-SafeDebugLog -Message "Analyzing branch name for version bump: $BranchName"
+    
     $finalBumpType = Get-HigherBumpType -BumpType1 $gitBumpType -BumpType2 $branchBumpType
 
     Write-SafeInfoLog -Message "First release bump determination: Git=$gitBumpType, Branch=$branchBumpType, Final=$finalBumpType"
+    if ($gitBumpType -ne $finalBumpType) {
+        Write-SafeDebugLog -Message "Branch name '$BranchName' elevated bump type from $gitBumpType to $finalBumpType"
+    }
 
     # Calculate new version
     try {
@@ -666,31 +714,56 @@ function Get-ReleaseVersionBumpType {
         # Analyze commit messages and merge commit branch names
         $foundMajor = $false
         $foundMinor = $false
+        $majorIndicators = @()
+        $minorIndicators = @()
         
         foreach ($commit in $commits) {
             $commitMessage = $commit.ToLower()
             
             # Check for major version indicators (without prerelease suffixes)
-            if ($commitMessage -match "(major/|breaking|major)(?!-alpha|!-beta)") {
+            if ($commitMessage -match "(major/|breaking|major|!:)(?!-alpha|!-beta)") {
                 $foundMajor = $true
-                Write-SafeInfoLog -Message "Found major version indicator in: $commit"
-                break
+                $majorIndicators += $commit
             }
             
             # Check for minor version indicators (without prerelease suffixes)
-            if ($commitMessage -match "(feature/|feat:|feature:|minor)(?!-alpha|!-beta)") {
+            if ($commitMessage -match "(feature/|feat:|feat\(|feature:|minor|add:|new:)(?!-alpha|!-beta)") {
                 $foundMinor = $true
-                Write-SafeInfoLog -Message "Found minor version indicator in: $commit"
+                $minorIndicators += $commit
+            }
+        }
+        
+        # Log detailed indicators
+        if ($majorIndicators.Count -gt 0) {
+            Write-SafeInfoLog -Message "Found $($majorIndicators.Count) MAJOR bump indicator(s)"
+            $majorIndicators | Select-Object -First 3 | ForEach-Object {
+                Write-SafeDebugLog -Message "  → MAJOR: $_"
+            }
+            if ($majorIndicators.Count -gt 3) {
+                Write-SafeDebugLog -Message "  ... and $($majorIndicators.Count - 3) more major indicators"
+            }
+        }
+        
+        if ($minorIndicators.Count -gt 0 -and -not $foundMajor) {
+            Write-SafeInfoLog -Message "Found $($minorIndicators.Count) MINOR bump indicator(s)"
+            $minorIndicators | Select-Object -First 5 | ForEach-Object {
+                Write-SafeDebugLog -Message "  → MINOR: $_"
+            }
+            if ($minorIndicators.Count -gt 5) {
+                Write-SafeDebugLog -Message "  ... and $($minorIndicators.Count - 5) more minor indicators"
             }
         }
         
         if ($foundMajor) {
+            Write-SafeInfoLog -Message "Bump decision: MAJOR (breaking changes detected)"
             return "major"
         }
         elseif ($foundMinor) {
+            Write-SafeInfoLog -Message "Bump decision: MINOR (features detected)"
             return "minor"
         }
         else {
+            Write-SafeInfoLog -Message "Bump decision: PATCH (no major/minor indicators)"
             return "patch"
         }
     }
