@@ -448,10 +448,11 @@ function Get-FirstSemanticVersion {
         return New-VersionResultObject @rv
     }
 
-    # Standard-Versionen 0.0.0 oder 1.0.0 erlauben
-    $isStandardStart = ($version.ToString() -eq "0.0.0") -or ($version.ToString() -eq "1.0.0")
+    # SemVer-konforme Startversionen: Alle 0.x.y (Pre-1.0 Development) und 1.0.0
+    # Versionen >= 1.1.0 ohne Tags sind verdächtig (Migration vergessen?)
+    $isStandardStart = ($version.Major -eq 0) -or ($version.ToString() -eq "1.0.0")
     if (-not $isStandardStart) {
-        Write-SafeWarningLog -Message "Unusual PSD1 version detected for first release: $CurrentVersion"
+        Write-SafeWarningLog -Message "Unusual PSD1 version detected for first release: $CurrentVersion (expected 0.x.y or 1.0.0)"
         
         # Create mismatch record for potential force-release
         try {
