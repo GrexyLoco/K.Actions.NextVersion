@@ -147,7 +147,8 @@ function Get-ValidManifestPath {
 function Test-PSD1TagConsistency {
     param (
         [string]$PSD1Version,
-        [string]$LatestTag
+        [string]$LatestTag,
+        [switch]$ForceVersionRelease
     )
     if ([string]::IsNullOrEmpty($LatestTag)) {
         return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error $null -Instructions $null -GitContext @{ Consistency = "No tag found" }
@@ -169,12 +170,39 @@ function Test-PSD1TagConsistency {
         } -GitContext @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
     }
     if ($psd1Ver -gt $tagVer) {
+        # ─────────────────────────────────────────────────────────────────────
+        # 🔧 Smart Version Jump Detection
+        # Allow expected version bumps (patch/minor/major +1) but warn on large jumps
+        # ─────────────────────────────────────────────────────────────────────
+        $expectedPatch = [Version]::new($tagVer.Major, $tagVer.Minor, $tagVer.Build + 1)
+        $expectedMinor = [Version]::new($tagVer.Major, $tagVer.Minor + 1, 0)
+        $expectedMajor = [Version]::new($tagVer.Major + 1, 0, 0)
+        
+        $isExpectedBump = ($psd1Ver -eq $expectedPatch) -or ($psd1Ver -eq $expectedMinor) -or ($psd1Ver -eq $expectedMajor)
+        
+        if ($isExpectedBump -or $ForceVersionRelease) {
+            # This is a normal version bump - likely from a previous workflow run
+            # that updated PSD1 but failed before creating the release tag
+            # OR user forced the release via workflow input
+            $reason = if ($ForceVersionRelease) { "Forced by user via workflow input" } else { "Expected version bump detected" }
+            Write-SafeInfoLog -Message "PSD1 version ($PSD1Version) > tag ($LatestTag) - $reason - continuing with release"
+            return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error $null -Instructions $null -GitContext @{ 
+                Consistency = $reason
+                PSD1Version = $PSD1Version
+                LatestTag = $LatestTag
+                ExpectedBump = $isExpectedBump
+                ForcedRelease = $ForceVersionRelease.IsPresent
+            }
+        }
+        
+        # Large or unexpected version jump - this needs attention
         return New-VersionResultObject -CurrentVersion $PSD1Version -LastReleaseTag $LatestTag -Error "PSD1 version ($PSD1Version) is higher than the latest tag ($LatestTag)." -Instructions @{
             Message  = "Large version jump detected. Check if this is intended."
             Options = @(
-                "Option 1: Set ModuleVersion to $LatestTag for sequential releases"
+                "Option 1: Set ModuleVersion to $LatestTag for sequential releases",
+                "Option 2: Use 'force-version-release: true' workflow input to proceed anyway"
             )
-        } -GitContext @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag }
+        } -GitContext @{ PSD1Version = $PSD1Version; LatestTag = $LatestTag; ExpectedBump = $false }
     }
     if ($psd1Ver -eq $tagVer) {
         # Warning if PSD1 version identical to tag (avoid duplicate releases)
@@ -258,7 +286,10 @@ function Get-NextSemanticVersion {
         [string]$BranchName = $env:GITHUB_REF_NAME,
         
         [Parameter(Mandatory = $false)]
-        [string]$TargetBranch
+        [string]$TargetBranch,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$ForceVersionRelease
     )
     
     try {
@@ -288,7 +319,7 @@ function Get-NextSemanticVersion {
 
         # NEU: Validierung bei existierenden Tags
         if (-not $isFirstRelease) {
-            $consistencyResult = Test-PSD1TagConsistency -PSD1Version $currentVersionString -LatestTag $latestTag
+            $consistencyResult = Test-PSD1TagConsistency -PSD1Version $currentVersionString -LatestTag $latestTag -ForceVersionRelease:$ForceVersionRelease
             if ($consistencyResult.Error) {
                 return New-VersionResultObject -CurrentVersion $currentVersionString -BumpType "none" -NewVersion $currentVersionString -LastReleaseTag $latestTag -IsFirstRelease $false -Error $consistencyResult.Error -Instructions $consistencyResult.Instructions -GitContext $consistencyResult.GitContext
             }

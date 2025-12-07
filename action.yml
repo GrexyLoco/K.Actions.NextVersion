@@ -13,6 +13,10 @@ inputs:
     description: 'Target branch for release analysis (main/master). Auto-discovery if empty.'
     required: false
     default: ''
+  forceVersionRelease:
+    description: 'Force release even if PSD1 version is ahead of tag (recovery mode for failed releases)'
+    required: false
+    default: 'false'
 
 outputs:
   currentVersion:
@@ -52,11 +56,15 @@ runs:
         # Import the K.PSGallery.SemanticVersioning module
         Import-Module "$env:GITHUB_ACTION_PATH/K.PSGallery.SemanticVersioning" -Force
         
+        # Parse force flag (convert string to boolean)
+        $forceRelease = '${{ inputs.forceVersionRelease }}' -eq 'true'
+        
         # Call the main function with parameters
         $result = Get-NextSemanticVersion `
           -ManifestPath "${{ inputs.manifestPath }}" `
           -BranchName "${{ inputs.branchName }}" `
-          -TargetBranch "${{ inputs.targetBranch }}"
+          -TargetBranch "${{ inputs.targetBranch }}" `
+          -ForceVersionRelease:$forceRelease
 
         echo "currentVersion=$($result.CurrentVersion)" >> $env:GITHUB_OUTPUT
         echo "bumpType=$($result.BumpType)" >> $env:GITHUB_OUTPUT
