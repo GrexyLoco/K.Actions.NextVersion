@@ -1,0 +1,115 @@
+name: 📦 Next Version - PowerShell Module (Reusable Workflow)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 📋 REUSABLE WORKFLOW für PowerShell Module Version Management
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# 🎯 Zweck:
+#   - Semantic Versioning für PowerShell Module
+#   - Git-basierte Release-Analyse
+#   - Alpha/Beta Pre-Release Support
+#   - PSD1 Manifest Version Detection
+#
+# 🔒 Private Repository Support:
+#   ✅ Funktioniert MIT private repos in derselben Organization
+#   ✅ KEIN PAT erforderlich (nutzt Standard GITHUB_TOKEN)
+#   ✅ Automatisches Checkout beider Repos (Caller + Action)
+#
+# ═══════════════════════════════════════════════════════════════════════════
+
+on:
+  workflow_call:
+    inputs:
+      manifest-path:
+        description: 'Path to PowerShell module manifest (.psd1). Auto-discovery if empty.'
+        required: false
+        type: string
+        default: ''
+      branch-name:
+        description: 'Current branch name for analysis'
+        required: false
+        type: string
+        default: ''
+      target-branch:
+        description: 'Target branch for release analysis (main/master)'
+        required: false
+        type: string
+        default: ''
+      force-version-release:
+        description: 'Force release even if PSD1 ahead of tag (recovery mode)'
+        required: false
+        type: boolean
+        default: false
+      runs-on:
+        description: 'Runner to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+    
+    secrets:
+      github-token:
+        description: 'GitHub token for repository access'
+        required: true
+    
+    outputs:
+      current-version:
+        description: 'Current version from manifest file'
+        value: ${{ jobs.version.outputs.current-version }}
+      bump-type:
+        description: 'Detected version bump type (major/minor/patch/none)'
+        value: ${{ jobs.version.outputs.bump-type }}
+      new-version:
+        description: 'Calculated new semantic version'
+        value: ${{ jobs.version.outputs.new-version }}
+      last-release-tag:
+        description: 'Latest release tag found in repository'
+        value: ${{ jobs.version.outputs.last-release-tag }}
+      target-branch:
+        description: 'Target branch used for analysis'
+        value: ${{ jobs.version.outputs.target-branch }}
+      suffix:
+        description: 'Alpha/Beta suffix if detected (alpha/beta/empty)'
+        value: ${{ jobs.version.outputs.suffix }}
+      warning:
+        description: 'Warning message if unusual version detected'
+        value: ${{ jobs.version.outputs.warning }}
+      action-required:
+        description: 'Whether manual action is required (true/false)'
+        value: ${{ jobs.version.outputs.action-required }}
+
+jobs:
+  version:
+    name: 📦 Calculate Module Version
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      current-version: ${{ steps.calculate.outputs.currentVersion }}
+      bump-type: ${{ steps.calculate.outputs.bumpType }}
+      new-version: ${{ steps.calculate.outputs.newVersion }}
+      last-release-tag: ${{ steps.calculate.outputs.lastReleaseTag }}
+      target-branch: ${{ steps.calculate.outputs.targetBranch }}
+      suffix: ${{ steps.calculate.outputs.suffix }}
+      warning: ${{ steps.calculate.outputs.warning }}
+      action-required: ${{ steps.calculate.outputs.actionRequired }}
+    
+    steps:
+      - name: 📥 Checkout caller repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      
+      - name: 📥 Checkout action repository
+        uses: actions/checkout@v6
+        with:
+          repository: GrexyLoco/K.Actions.NextVersion
+          token: ${{ secrets.github-token }}
+          path: .github/actions/next-version
+      
+      - name: 📦 Calculate Next Version
+        id: calculate
+        uses: ./.github/actions/next-version
+        with:
+          manifestPath: ${{ inputs.manifest-path }}
+          branchName: ${{ inputs.branch-name || github.ref_name }}
+          targetBranch: ${{ inputs.target-branch }}
+          forceVersionRelease: ${{ inputs.force-version-release }}
+
