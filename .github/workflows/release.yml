@@ -6,9 +6,6 @@ name: 🚀 GitHub Action Release Pipeline
 on:
   push:
     branches: [master, main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
   workflow_dispatch:
     inputs:
       version:
