@@ -214,6 +214,9 @@ try {
     # Load module function files
     [void]$ImportMessages.Add("📦 Loading module function files...")
     
+    . $PSScriptRoot\K.PSGallery.SemanticVersioning.Core.ps1 -ErrorAction Stop
+    [void]$ImportMessages.Add("   ✓ Core versioning functions loaded (unified logic)")
+    
     . $PSScriptRoot\K.PSGallery.SemanticVersioning.Git.ps1 -ErrorAction Stop
     [void]$ImportMessages.Add("   ✓ Git functions loaded")
     
