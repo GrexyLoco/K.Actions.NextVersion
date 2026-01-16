@@ -43,10 +43,12 @@ $script:BumpTypePatterns = @{
 }
 
 # PreRelease phase priority (higher = later in lifecycle)
+# Note: Use empty string '' for stable instead of $null (PowerShell limitation)
 $script:PreReleasePriority = @{
-    'alpha' = 1
-    'beta'  = 2
-    $null   = 3  # Stable has highest priority (end of lifecycle)
+    'alpha'  = 1
+    'beta'   = 2
+    ''       = 3  # Stable (empty string) has highest priority (end of lifecycle)
+    'stable' = 3  # Alias for clarity
 }
 
 #endregion
@@ -207,16 +209,45 @@ function Get-PreReleaseTransition {
         [string]$CurrentVersion
     )
     
-    # Normalize null/empty values
+    # Normalize null/empty values to empty string for hashtable lookup
+    $currentKey = if ([string]::IsNullOrWhiteSpace($CurrentPreRelease)) { '' } else { $CurrentPreRelease }
+    $targetKey = if ([string]::IsNullOrWhiteSpace($TargetPreRelease)) { '' } else { $TargetPreRelease }
+    
+    # Normalize the actual values for comparison
     if ([string]::IsNullOrWhiteSpace($CurrentPreRelease)) { $CurrentPreRelease = $null }
     if ([string]::IsNullOrWhiteSpace($TargetPreRelease)) { $TargetPreRelease = $null }
     
-    $currentPriority = $script:PreReleasePriority[$CurrentPreRelease]
-    $targetPriority = $script:PreReleasePriority[$TargetPreRelease]
+    $currentPriority = $script:PreReleasePriority[$currentKey]
+    $targetPriority = $script:PreReleasePriority[$targetKey]
     
-    # Validate: Can only move forward in lifecycle or stay at same level
-    if ($targetPriority -lt $currentPriority) {
-        # Trying to go backwards (e.g., beta → alpha)
+    # Default to stable (3) if not found
+    if ($null -eq $currentPriority) { $currentPriority = 3 }
+    if ($null -eq $targetPriority) { $targetPriority = 3 }
+    
+    # Determine action type FIRST to check for valid/invalid transitions
+    # NOTE: Use IsNullOrWhiteSpace because [string] parameters convert $null to empty string!
+    $curIsEmpty = [string]::IsNullOrWhiteSpace($CurrentPreRelease)
+    $tarIsEmpty = [string]::IsNullOrWhiteSpace($TargetPreRelease)
+    
+    $action = if ($curIsEmpty -eq $tarIsEmpty -and $CurrentPreRelease -eq $TargetPreRelease) {
+        'continue'  # Same phase, increment build number
+    }
+    elseif ($curIsEmpty -and -not $tarIsEmpty) {
+        'start'  # Starting new PreRelease series from stable - ALWAYS VALID
+    }
+    elseif (-not $curIsEmpty -and $tarIsEmpty) {
+        'end'  # Ending PreRelease, going to stable - ALWAYS VALID
+    }
+    else {
+        'transition'  # Moving between PreRelease types (alpha → beta or INVALID beta → alpha)
+    }
+    
+    # Validate transitions ONLY for 'transition' action (not for start/end)
+    # - 'start' (Stable → Alpha/Beta) is ALWAYS valid (new lifecycle)
+    # - 'end' (Alpha/Beta → Stable) is ALWAYS valid (release)
+    # - 'transition' within PreRelease must move FORWARD (alpha→beta, not beta→alpha)
+    if ($action -eq 'transition' -and $targetPriority -lt $currentPriority) {
+        # Trying to go backwards WITHIN PreRelease lifecycle (e.g., beta → alpha)
         $currentName = if ($CurrentPreRelease) { $CurrentPreRelease } else { 'stable' }
         $targetName = if ($TargetPreRelease) { $TargetPreRelease } else { 'stable' }
         
@@ -225,20 +256,6 @@ function Get-PreReleaseTransition {
             ErrorMessage = "$($targetName.ToUpper()) nach $($currentName.ToUpper()) nicht erlaubt für Version $CurrentVersion"
             Action       = 'error'
         }
-    }
-    
-    # Determine action type
-    $action = if ($CurrentPreRelease -eq $TargetPreRelease) {
-        'continue'  # Same phase, increment build number
-    }
-    elseif ($null -eq $CurrentPreRelease -and $null -ne $TargetPreRelease) {
-        'start'  # Starting new PreRelease series
-    }
-    elseif ($null -ne $CurrentPreRelease -and $null -eq $TargetPreRelease) {
-        'end'  # Ending PreRelease, going to stable
-    }
-    else {
-        'transition'  # Moving between PreRelease types (alpha → beta)
     }
     
     return [PSCustomObject]@{
@@ -499,16 +516,16 @@ function Get-NextVersion {
                     }
                 }
                 
-                # Check if bump changes base version
-                $newBaseVersion = Step-SemanticVersion -Version $lastBaseVersion -BumpType $bumpType
-                
-                if ($newBaseVersion -eq $lastBaseVersion) {
-                    # Patch bump within PreRelease - just increment build number
-                    $baseVersion = $lastBaseVersion
+                # For stable releases (no PreRelease), always apply the bump
+                # For PreRelease "continue", we keep the same base version and just increment build number
+                if ([string]::IsNullOrWhiteSpace($targetPreRelease)) {
+                    # Stable branch - always bump version
+                    $baseVersion = Step-SemanticVersion -Version $lastBaseVersion -BumpType $bumpType
                 }
                 else {
-                    # Version changed - new PreRelease series
-                    $baseVersion = $newBaseVersion
+                    # PreRelease branch with "continue" action - keep base version, increment build number
+                    # The bump type is tracked but only affects the NEXT stable release
+                    $baseVersion = $lastBaseVersion
                 }
             }
             'start' {
@@ -574,14 +591,16 @@ function Get-NextVersion {
 
 #region Exports
 
-# Export all public functions
-Export-ModuleMember -Function @(
-    'Get-ReleaseBranchInfo'
-    'Get-BumpTypeFromCommits'
-    'Get-PreReleaseTransition'
-    'Get-NextBuildNumber'
-    'Step-SemanticVersion'
-    'Get-NextVersion'
-)
+# Export all public functions (only when loaded as module)
+if ($MyInvocation.MyCommand.ScriptBlock.Module) {
+    Export-ModuleMember -Function @(
+        'Get-ReleaseBranchInfo'
+        'Get-BumpTypeFromCommits'
+        'Get-PreReleaseTransition'
+        'Get-NextBuildNumber'
+        'Step-SemanticVersion'
+        'Get-NextVersion'
+    )
+}
 
 #endregion
