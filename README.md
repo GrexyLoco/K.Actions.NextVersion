@@ -87,28 +87,61 @@ Merge: feature/new-api
 Action: 1.5.3 + minor bump = 1.6.0 ✅
 ```
 
-## 🌿 Branch Pattern Recognition
+## 🌿 Release Branches (PreRelease-Quelle)
 
-| Branch Pattern | Bump Type | Beispiel | Ergebnis |
-|----------------|-----------|----------|----------|
-| `feature/*` | **Minor** | `feature/user-auth` | `1.2.0 → 1.3.0` |
-| `bugfix/*` | **Patch** | `bugfix/memory-leak` | `1.2.0 → 1.2.1` |
-| `refactor/*` | **Patch** | `refactor/cleanup` | `1.2.0 → 1.2.1` |
-| `major/*` | **Major** | `major/breaking-api` | `1.2.0 → 2.0.0` |
-| Andere | **Patch** | `hotfix/urgent` | `1.2.0 → 1.2.1` |
+> **Wichtig:** PreRelease-Typ wird durch den **Branch-Namen** bestimmt, nicht durch Commit-Patterns!
 
-## 💬 Commit Keywords (Höchste Priorität)
+| Branch | PreRelease-Typ | Beispiel-Version |
+|--------|----------------|------------------|
+| `release` | Stable (kein Suffix) | `1.2.0` |
+| `main`, `master`, `staging` | **Beta** | `1.2.0-beta.1` |
+| `dev`, `development` | **Alpha** | `1.2.0-alpha.1` |
+| Andere (feature/*, etc.) | **Kein Release** | ❌ Build fehlschlägt |
+
+## 🔄 PreRelease-Lifecycle (One-Way-Street)
+
+```
+      ┌───────────────────────────────────────────┐
+      │          PreRelease Lifecycle             │
+      │                                           │
+      │  Stable ──► Alpha ──► Beta ──► Stable    │
+      │    │          │         │                 │
+      │    │          └────────►│   (Rückwärts    │
+      │    └───────────────────►│    verboten!)   │
+      │                                           │
+      │  ✓ Stable → Alpha (Start neue Serie)     │
+      │  ✓ Stable → Beta  (Alpha überspringen)   │
+      │  ✓ Alpha  → Beta  (Transition)           │
+      │  ✓ Alpha  → Stable (Release)             │
+      │  ✓ Beta   → Stable (Release)             │
+      │  ✗ Beta   → Alpha (VERBOTEN!)            │
+      └───────────────────────────────────────────┘
+```
+
+## 💬 BumpType-Patterns (Commit-basiert)
+
+> **Wichtig:** BumpType wird **nur** durch Commit-Messages bestimmt, nicht durch Branch-Namen!
 
 | Keywords | Bump Type | Beispiel Commit |
 |----------|-----------|-----------------|
-| `BREAKING`, `MAJOR` | **Major** | `"BREAKING: Remove deprecated API"` |
-| `FEATURE`, `FEAT`, `MINOR` | **Minor** | `"FEATURE: Add user authentication"` |
-| `FIX`, `BUGFIX`, `PATCH`, `HOTFIX` | **Patch** | `"FIX: Memory leak in parser"` |
+| `BREAKING`, `MAJOR`, `!:`, `breaking change` | **Major** | `"BREAKING: Remove deprecated API"` |
+| `FEATURE`, `MINOR`, `feat:`, `feat(`, `feature:`, `add:`, `new:` | **Minor** | `"feat: Add user authentication"` |
+| Alles andere | **Patch** | `"fix: Memory leak in parser"` |
 
-**Alpha/Beta Support:**
+### Priorität: Major > Minor > Patch
+
 ```
-"FEATURE-ALPHA: New experimental API" → 1.3.0-alpha
-"BREAKING-BETA: API redesign" → 2.0.0-beta
+Commits: ["feat: new API", "BREAKING: removed old method"]
+→ BumpType = major (BREAKING hat Vorrang)
+```
+
+## 🏷️ Build-Number (PreRelease-Serie)
+
+Bei PreRelease-Versionen wird automatisch eine Build-Number hochgezählt:
+
+```
+Existing tags: v1.2.0-alpha.1, v1.2.0-alpha.2
+Next alpha:    v1.2.0-alpha.3
 ```
 
 ## 🚀 Usage Examples
