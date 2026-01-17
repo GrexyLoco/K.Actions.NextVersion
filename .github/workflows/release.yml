@@ -123,10 +123,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          fetch-tags: true
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 🏷️ Fetch all tags
-        run: git fetch --tags
 
       - name: ⬆️ Analyze next version
         id: version
