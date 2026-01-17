@@ -474,12 +474,15 @@ function Get-NextVersion {
         
         # Step 3: Determine BumpType from commits
         $bumpType = Get-BumpTypeFromCommits -Commits $Commits
+        Write-Verbose "Detected BumpType: $bumpType"
         
         # Step 4: Validate PreRelease transition
         $targetPreRelease = $branchInfo.PreReleaseType
         $transition = Get-PreReleaseTransition -CurrentPreRelease $currentPreRelease -TargetPreRelease $targetPreRelease -CurrentVersion $lastBaseVersion
+        Write-Verbose "PreRelease transition: $($transition.Action) (IsValid: $($transition.IsValid))"
         
         if (-not $transition.IsValid) {
+            Write-Verbose "PreRelease lifecycle violation: $($transition.ErrorMessage)"
             return [PSCustomObject]@{
                 Success           = $false
                 BumpType          = 'none'
@@ -501,6 +504,7 @@ function Get-NextVersion {
                 # Same PreRelease phase - check if we need to bump or just increment build
                 if ($Commits.Count -eq 0) {
                     # No commits, no change needed
+                    Write-Verbose "No commits since last tag - no new version required"
                     return [PSCustomObject]@{
                         Success           = $false
                         BumpType          = 'none'
@@ -511,7 +515,7 @@ function Get-NextVersion {
                         IsFirstRelease    = $false
                         LastTag           = $LastTag
                         BranchName        = $BranchName
-                        ErrorMessage      = 'Keine Commits seit letztem Tag - keine neue Version erforderlich'
+                        ErrorMessage      = 'No commits since last tag - no new version required'
                         ActionRequired    = $false
                     }
                 }
@@ -520,20 +524,24 @@ function Get-NextVersion {
                 # For PreRelease "continue", we keep the same base version and just increment build number
                 if ([string]::IsNullOrWhiteSpace($targetPreRelease)) {
                     # Stable branch - always bump version
+                    Write-Verbose "Stable branch: Applying bump $bumpType to $lastBaseVersion"
                     $baseVersion = Step-SemanticVersion -Version $lastBaseVersion -BumpType $bumpType
                 }
                 else {
                     # PreRelease branch with "continue" action - keep base version, increment build number
                     # The bump type is tracked but only affects the NEXT stable release
+                    Write-Verbose "PreRelease 'continue': Keeping base version $lastBaseVersion, incrementing build number"
                     $baseVersion = $lastBaseVersion
                 }
             }
             'start' {
                 # Starting new PreRelease from stable
+                Write-Verbose "PreRelease 'start': Starting new PreRelease from stable with bump $bumpType"
                 $baseVersion = Step-SemanticVersion -Version $lastBaseVersion -BumpType $bumpType
             }
             'transition' {
                 # Moving from alpha to beta - same base version, reset build number
+                Write-Verbose "PreRelease 'transition': Moving from $currentPreRelease to $targetPreRelease, keeping base version $lastBaseVersion"
                 $baseVersion = $lastBaseVersion
             }
             'end' {
@@ -541,10 +549,12 @@ function Get-NextVersion {
                 # But if there are bump indicators, apply them
                 if ($bumpType -eq 'patch' -and $Commits.Count -gt 0) {
                     # No explicit bump indicator but there are commits - release current version as stable
+                    Write-Verbose "PreRelease 'end': No explicit bump indicator, releasing $lastBaseVersion as stable"
                     $baseVersion = $lastBaseVersion
                 }
                 else {
                     # Explicit bump indicator - apply it
+                    Write-Verbose "PreRelease 'end': Explicit bump $bumpType, applying to $lastBaseVersion"
                     $baseVersion = Step-SemanticVersion -Version $lastBaseVersion -BumpType $bumpType
                 }
             }
