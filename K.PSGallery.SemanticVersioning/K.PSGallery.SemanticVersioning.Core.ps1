@@ -502,7 +502,7 @@ function Get-NextVersion {
         switch ($transition.Action) {
             'continue' {
                 # Same PreRelease phase - check if we need to bump or just increment build
-                if ($Commits.Count -eq 0) {
+                if ($commitsSinceTag.Count -eq 0) {
                     # No commits, no change needed
                     Write-Verbose "No commits since last tag - no new version required"
                     return [PSCustomObject]@{
