@@ -5,7 +5,7 @@
 
 ![Quality Gate](https://img.shields.io/badge/Quality_Gate-passing-brightgreen?logo=githubactions) ![Release](https://img.shields.io/badge/Release-none-lightgrey?logo=github) [![CI](https://github.com/GrexyLoco/K.Actions.NextVersion/actions/workflows/release.yml/badge.svg)](https://github.com/GrexyLoco/K.Actions.NextVersion/actions/workflows/release.yml)
 
-> 🕐 **Last Updated:** 2026-01-17 22:25:19 UTC | **Action:** `K.Actions.NextVersion - Release-based Semantic Versioning`
+> 🕐 **Last Updated:** 2026-01-17 22:34:40 UTC | **Action:** `K.Actions.NextVersion - Release-based Semantic Versioning`
 <!-- END AUTO-GENERATED BADGES -->
 
 🚀 **Release-based Semantic Versioning Action** für PowerShell Module mit intelligenter Hybrid-Logik für erste Releases.
