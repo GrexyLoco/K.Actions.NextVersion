@@ -27,7 +27,7 @@
 | `manifestPath` | Pfad zur .psd1 Datei | ❌ | Auto-Discovery |
 | `branchName` | Branch-Name für Analyse | ❌ | `github.ref_name` |
 | `targetBranch` | Target-Branch für Release-Analyse | ❌ | Auto-Discovery |
-| `forceFirstRelease` | Ersten Release mit ungewöhnlicher Version erzwingen | ❌ | `false` |
+| `forceVersionRelease` | Ersten Release mit ungewöhnlicher Version erzwingen | ❌ | `false` |
 
 ## 📊 Outputs
 
@@ -53,7 +53,7 @@ PSD1: ModuleVersion = '1.0.0'  # ✅ Standard Initial Release
 ### **Ungewöhnliche Versionen (Warnung + Bestätigung):**
 ```yaml
 PSD1: ModuleVersion = '3.5.2'  # ⚠️ Ungewöhnliche Startversion
-→ Erfordert forceFirstRelease: true für Migration
+→ Erfordert forceVersionRelease: true für Migration
 ```
 
 ### **Erste Release Berechnung:**
@@ -76,7 +76,7 @@ Action: 1.0.0 + minor bump = 1.1.0 ✅
 ```yaml
 Situation: Keine Git-Tags, PSD1 = '2.3.1'
 Merge: bugfix/critical-fix
-Force: forceFirstRelease: true
+Force: forceVersionRelease: true
 Action: 2.3.1 + patch bump = 2.3.2 ✅
 ```
 
