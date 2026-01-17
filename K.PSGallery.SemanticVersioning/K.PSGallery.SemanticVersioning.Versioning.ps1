@@ -340,10 +340,9 @@ function Get-NextSemanticVersion {
         }
         else {
             Write-SafeInfoLog -Message "Found existing release tag: $latestTag"
-            $bumpType = Get-ReleaseVersionBumpType -LastReleaseTag $latestTag -TargetBranch $TargetBranch
-            $branchBumpType = Get-VersionBumpType -BranchName $BranchName
-            $finalBumpType = Get-HigherBumpType -BumpType1 $bumpType -BumpType2 $branchBumpType
-            Write-SafeInfoLog -Message "Release-based bump: $bumpType, Branch-based bump: $branchBumpType, Final: $finalBumpType"
+            # BumpType is now purely commit-based (branch-based bumping removed for consistency)
+            $finalBumpType = Get-ReleaseVersionBumpType -LastReleaseTag $latestTag -TargetBranch $TargetBranch
+            Write-SafeInfoLog -Message "Commit-based bump type: $finalBumpType"
             
             # Calculate base version without suffix
             $baseNewVersion = Step-Version -Version $currentVersionString -BumpType $finalBumpType
@@ -359,8 +358,7 @@ function Get-NextSemanticVersion {
                 $result.NewVersion = $finalVersion
                 $result.LastReleaseTag = $latestTag
                 $result.GitContext = @{
-                    ReleaseBumpType = $bumpType
-                    BranchBumpType  = $branchBumpType
+                    CommitBumpType = $finalBumpType
                     PreReleaseSuffix = $suffixType
                     BuildNumber = $buildNumber
                     BaseVersion = $baseNewVersion.ToString()
@@ -372,8 +370,7 @@ function Get-NextSemanticVersion {
                 $result.NewVersion = $baseNewVersion.ToString()
                 $result.LastReleaseTag = $latestTag
                 $result.GitContext = @{
-                    ReleaseBumpType = $bumpType
-                    BranchBumpType  = $branchBumpType
+                    CommitBumpType = $finalBumpType
                 }
             }
         }
@@ -595,16 +592,9 @@ function Get-FirstSemanticVersion {
         Write-SafeWarningLog -Message "Could not analyze git history, using default patch bump"
     }
 
-    # Branchname berücksichtigen
-    $branchBumpType = Get-VersionBumpType -BranchName $BranchName
-    Write-SafeDebugLog -Message "Analyzing branch name for version bump: $BranchName"
-    
-    $finalBumpType = Get-HigherBumpType -BumpType1 $gitBumpType -BumpType2 $branchBumpType
-
-    Write-SafeInfoLog -Message "First release bump determination: Git=$gitBumpType, Branch=$branchBumpType, Final=$finalBumpType"
-    if ($gitBumpType -ne $finalBumpType) {
-        Write-SafeDebugLog -Message "Branch name '$BranchName' elevated bump type from $gitBumpType to $finalBumpType"
-    }
+    # BumpType is now purely commit-based (branch-based bumping removed for consistency)
+    $finalBumpType = $gitBumpType
+    Write-SafeInfoLog -Message "First release bump determination: Commit-based=$finalBumpType"
 
     # Calculate new version
     try {
@@ -626,12 +616,11 @@ function Get-FirstSemanticVersion {
                 Error          = $null
                 Instructions   = $null
                 GitContext     = @{
-                    GitBumpType     = $gitBumpType
-                    BranchBumpType  = $branchBumpType
-                    IsStandardStart = $isStandardStart
+                    CommitBumpType   = $gitBumpType
+                    IsStandardStart  = $isStandardStart
                     PreReleaseSuffix = $suffixType
-                    BuildNumber = $buildNumber
-                    BaseVersion = $baseNewVersion.ToString()
+                    BuildNumber      = $buildNumber
+                    BaseVersion      = $baseNewVersion.ToString()
                 }
             }
         }
@@ -645,8 +634,7 @@ function Get-FirstSemanticVersion {
                 Error          = $null
                 Instructions   = $null
                 GitContext     = @{
-                    GitBumpType     = $gitBumpType
-                    BranchBumpType  = $branchBumpType
+                    CommitBumpType  = $gitBumpType
                     IsStandardStart = $isStandardStart
                 }
             }
@@ -807,39 +795,28 @@ function Get-ReleaseVersionBumpType {
 function Get-VersionBumpType {
     <#
     .SYNOPSIS
-        Determines version bump type based on Git branch naming patterns.
+        DEPRECATED: Branch-based BumpType determination has been removed.
     
     .DESCRIPTION
-        Analyzes the current Git branch name to suggest an appropriate semantic version bump.
-        This function supports common Git flow branch naming conventions and provides
-        fallback logic for unknown patterns.
+        This function is DEPRECATED and will be removed in a future version.
+        Branch-based version bumping has been removed for consistency across all
+        K.Actions.Next*Version actions. 
         
-        Supported branch patterns:
-        - major/*: Major version bump (breaking changes)
-        - feature/*, feat/*: Minor version bump (new features)
-        - bugfix/*, fix/*, hotfix/*, refactor/*: Patch version bump
-        - main, master, develop: Patch version bump (default)
+        REASON: Branch names like 'feature/xyz' don't logically determine version bumps.
+        A patch release can come from any branch. BumpType is now determined purely
+        by commit message keywords (BREAKING, FEATURE, feat:, fix:, etc.).
+        
+        Use Get-BumpTypeFromCommits from K.PSGallery.SemanticVersioning.Core.ps1 instead.
     
     .PARAMETER BranchName
-        The Git branch name to analyze for version bump patterns.
-        Should follow standard Git flow naming conventions.
+        The Git branch name (ignored - always returns 'patch').
     
     .OUTPUTS
-        String representing the suggested version bump: "major", "minor", or "patch"
-    
-    .EXAMPLE
-        $bumpType = Get-VersionBumpType -BranchName "feature/user-authentication"
-        # Returns: "minor"
-        
-    .EXAMPLE
-        $bumpType = Get-VersionBumpType -BranchName "bugfix/login-error"
-        # Returns: "patch"
+        String: Always returns "patch" for backward compatibility.
     
     .NOTES
-        This function provides branch-based suggestions that can be overridden by
-        commit message keywords or other analysis methods.
-        
-        Unknown branch patterns default to "patch" bump for safety.
+        DEPRECATED: This function is kept for backward compatibility only.
+        It will be removed in version 2.0.0.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -848,30 +825,11 @@ function Get-VersionBumpType {
         [string]$BranchName
     )
     
-    Write-SafeDebugLog -Message "Analyzing branch name for version bump: $BranchName"
+    Write-SafeWarningLog -Message "DEPRECATED: Get-VersionBumpType is deprecated. Branch-based BumpType removed. Use commit-based detection instead."
     
-    switch -Regex ($BranchName.ToLower()) {
-        '^major/.*' { 
-            Write-SafeInfoLog -Message "Major branch pattern detected"
-            return "major" 
-        }
-        '^feature/.*|^feat/.*' { 
-            Write-SafeInfoLog -Message "Feature branch pattern detected"
-            return "minor" 
-        }
-        '^bugfix/.*|^fix/.*|^hotfix/.*|^refactor/.*' { 
-            Write-SafeInfoLog -Message "Bugfix/refactor branch pattern detected"
-            return "patch" 
-        }
-        '^(main|master|develop)$' { 
-            Write-SafeInfoLog -Message "Main branch detected - using patch as default"
-            return "patch" 
-        }
-        default { 
-            Write-SafeInfoLog -Message "Unknown branch pattern - defaulting to patch"
-            return "patch" 
-        }
-    }
+    # Always return patch for backward compatibility
+    # The actual BumpType is determined by commit messages in Get-ReleaseVersionBumpType
+    return "patch"
 }
 
 function Step-Version {
