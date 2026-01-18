@@ -378,3 +378,287 @@ Describe 'Get-NextVersion - Integration' {
         }
     }
 }
+
+# =============================================================================
+# COMPLETE TRANSITION MATRIX TESTS
+# These tests ensure all PreRelease lifecycle transitions work correctly
+# =============================================================================
+
+Describe 'Complete Transition Matrix - End-to-End Integration' {
+    
+    Context '1. Stable → Alpha with different BumpTypes' {
+        # Transition: stable => alpha (1.0.0 & Patch & push in dev wird zu 1.0.1-alpha.1)
+        It 'should create 1.0.1-alpha.1 from 1.0.0 with Patch commit on dev branch' {
+            $result = Get-NextVersion -BranchName 'dev' -LastTag 'v1.0.0' -Commits @('fix: bug fix') -ExistingTags @('v1.0.0')
+            $result.Success | Should -Be $true
+            $result.BumpType | Should -Be 'patch'
+            $result.NewVersion | Should -Be '1.0.1-alpha.1'
+            $result.PreReleaseType | Should -Be 'alpha'
+        }
+        
+        # Transition: stable => alpha (1.0.0 & Minor & push in dev wird zu 1.1.0-alpha.1)
+        It 'should create 1.1.0-alpha.1 from 1.0.0 with Minor commit on dev branch' {
+            $result = Get-NextVersion -BranchName 'dev' -LastTag 'v1.0.0' -Commits @('feat: new feature') -ExistingTags @('v1.0.0')
+            $result.Success | Should -Be $true
+            $result.BumpType | Should -Be 'minor'
+            $result.NewVersion | Should -Be '1.1.0-alpha.1'
+            $result.PreReleaseType | Should -Be 'alpha'
+        }
+        
+        # Transition: stable => alpha (1.0.0 & Major & push in dev wird zu 2.0.0-alpha.1)
+        It 'should create 2.0.0-alpha.1 from 1.0.0 with Major commit on dev branch' {
+            $result = Get-NextVersion -BranchName 'dev' -LastTag 'v1.0.0' -Commits @('BREAKING: removed deprecated API') -ExistingTags @('v1.0.0')
+            $result.Success | Should -Be $true
+            $result.BumpType | Should -Be 'major'
+            $result.NewVersion | Should -Be '2.0.0-alpha.1'
+            $result.PreReleaseType | Should -Be 'alpha'
+        }
+        
+        # Also test with 'development' branch alias
+        It 'should work with development branch alias' {
+            $result = Get-NextVersion -BranchName 'development' -LastTag 'v1.0.0' -Commits @('fix: patch') -ExistingTags @('v1.0.0')
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.0.1-alpha.1'
+            $result.PreReleaseType | Should -Be 'alpha'
+        }
+    }
+    
+    Context '2. Alpha → Alpha (build number increment, BumpType only affects tracking)' {
+        # Transition: alpha => alpha (1.1.0-alpha.1 & Patch|Minor|Major* & push in dev wird zu 1.1.0-alpha.2)
+        # * := egal welcher BumpType, es zählt nur das prerelease build hoch, nicht die ersten drei!
+        
+        It 'should increment alpha build number with Patch commit (base version stays same)' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.1')
+            $result = Get-NextVersion -BranchName 'dev' -LastTag 'v1.1.0-alpha.1' -Commits @('fix: small bug') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0-alpha.2'
+            $result.PreReleaseType | Should -Be 'alpha'
+        }
+        
+        It 'should increment alpha build number with Minor commit (base version stays same)' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.1')
+            $result = Get-NextVersion -BranchName 'dev' -LastTag 'v1.1.0-alpha.1' -Commits @('feat: new feature') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            # BumpType is tracked but base version stays 1.1.0, only build number increments
+            $result.NewVersion | Should -Be '1.1.0-alpha.2'
+            $result.PreReleaseType | Should -Be 'alpha'
+        }
+        
+        It 'should increment alpha build number with Major commit (base version stays same)' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.1')
+            $result = Get-NextVersion -BranchName 'dev' -LastTag 'v1.1.0-alpha.1' -Commits @('BREAKING: major change') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            # Even with BREAKING change, base version stays 1.1.0 during alpha, only build number increments
+            $result.NewVersion | Should -Be '1.1.0-alpha.2'
+            $result.PreReleaseType | Should -Be 'alpha'
+        }
+        
+        It 'should correctly increment from alpha.2 to alpha.3' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.1', 'v1.1.0-alpha.2')
+            $result = Get-NextVersion -BranchName 'dev' -LastTag 'v1.1.0-alpha.2' -Commits @('fix: another fix') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0-alpha.3'
+        }
+    }
+    
+    Context '3. Non-Release Branch during Alpha (no version created)' {
+        # Transition: alpha => alpha (push in beliebigen branch außerhalb des definierten patterns erstellt keine neue Version)
+        
+        It 'should fail for feature/xyz branch when alpha exists' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.2')
+            $result = Get-NextVersion -BranchName 'feature/xyz' -LastTag 'v1.1.0-alpha.2' -Commits @('fix: feature work') -ExistingTags $tags
+            $result.Success | Should -Be $false
+            $result.ErrorMessage | Should -Match 'kein Release-Branch'
+        }
+        
+        It 'should fail for bugfix/issue-123 branch' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.2')
+            $result = Get-NextVersion -BranchName 'bugfix/issue-123' -LastTag 'v1.1.0-alpha.2' -Commits @('fix: bug') -ExistingTags $tags
+            $result.Success | Should -Be $false
+            $result.ErrorMessage | Should -Match 'kein Release-Branch'
+        }
+        
+        It 'should fail for hotfix/security branch' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.2')
+            $result = Get-NextVersion -BranchName 'hotfix/security' -LastTag 'v1.1.0-alpha.2' -Commits @('fix: security') -ExistingTags $tags
+            $result.Success | Should -Be $false
+            $result.ErrorMessage | Should -Match 'kein Release-Branch'
+        }
+        
+        It 'should fail for arbitrary branch names' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.2')
+            $result = Get-NextVersion -BranchName 'my-random-branch' -LastTag 'v1.1.0-alpha.2' -Commits @('fix: work') -ExistingTags $tags
+            $result.Success | Should -Be $false
+        }
+    }
+    
+    Context '4. Alpha → Beta (transition on master/staging)' {
+        # Transition: alpha => beta (1.1.0-alpha.2 & Patch|Minor|Major* & push in master wird zu 1.1.0-beta.1)
+        
+        It 'should transition from alpha to beta.1 on master branch' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.1', 'v1.1.0-alpha.2')
+            $result = Get-NextVersion -BranchName 'master' -LastTag 'v1.1.0-alpha.2' -Commits @('fix: stabilization') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0-beta.1'
+            $result.PreReleaseType | Should -Be 'beta'
+        }
+        
+        It 'should transition from alpha to beta.1 on main branch' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.3')
+            $result = Get-NextVersion -BranchName 'main' -LastTag 'v1.1.0-alpha.3' -Commits @('feat: final feature') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0-beta.1'
+            $result.PreReleaseType | Should -Be 'beta'
+        }
+        
+        It 'should transition from alpha to beta.1 on staging branch' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.5')
+            $result = Get-NextVersion -BranchName 'staging' -LastTag 'v1.1.0-alpha.5' -Commits @('BREAKING: major but still beta') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            # Base version stays same during transition, BumpType doesn't change it
+            $result.NewVersion | Should -Be '1.1.0-beta.1'
+            $result.PreReleaseType | Should -Be 'beta'
+        }
+    }
+    
+    Context '5. Beta → Beta (build number increment)' {
+        # Transition: beta => beta (1.1.0-beta.1 & Patch|Minor|Major* & push in master wird zu 1.1.0-beta.2)
+        
+        It 'should increment beta build number with Patch commit' {
+            $tags = @('v1.0.0', 'v1.1.0-beta.1')
+            $result = Get-NextVersion -BranchName 'master' -LastTag 'v1.1.0-beta.1' -Commits @('fix: beta bug') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0-beta.2'
+            $result.PreReleaseType | Should -Be 'beta'
+        }
+        
+        It 'should increment beta build number with Minor commit (base version stays same)' {
+            $tags = @('v1.0.0', 'v1.1.0-beta.1')
+            $result = Get-NextVersion -BranchName 'master' -LastTag 'v1.1.0-beta.1' -Commits @('feat: late feature') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0-beta.2'
+            $result.PreReleaseType | Should -Be 'beta'
+        }
+        
+        It 'should increment beta build number with Major commit (base version stays same)' {
+            $tags = @('v1.0.0', 'v1.1.0-beta.1')
+            $result = Get-NextVersion -BranchName 'master' -LastTag 'v1.1.0-beta.1' -Commits @('BREAKING: late breaking change') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0-beta.2'
+            $result.PreReleaseType | Should -Be 'beta'
+        }
+        
+        It 'should correctly increment from beta.2 to beta.3' {
+            $tags = @('v1.0.0', 'v1.1.0-beta.1', 'v1.1.0-beta.2')
+            $result = Get-NextVersion -BranchName 'main' -LastTag 'v1.1.0-beta.2' -Commits @('fix: more fixes') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0-beta.3'
+        }
+    }
+    
+    Context '6. Beta → Alpha (MUST FAIL - Invalid backwards transition)' {
+        # Transition: beta => dev MUSS FEHLSCHLAGEN!
+        # beta => beta (push in dev muss fehlschlagen, weil dann wieder eine alpha serie begonnen werden würde)
+        
+        It 'should reject dev branch push when beta exists (prevents alpha restart)' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.2', 'v1.1.0-beta.1')
+            $result = Get-NextVersion -BranchName 'dev' -LastTag 'v1.1.0-beta.1' -Commits @('fix: more dev work') -ExistingTags $tags
+            $result.Success | Should -Be $false
+            $result.ErrorMessage | Should -Match 'ALPHA nach BETA nicht erlaubt'
+        }
+        
+        It 'should reject development branch push when beta exists' {
+            $tags = @('v1.0.0', 'v1.1.0-beta.2')
+            $result = Get-NextVersion -BranchName 'development' -LastTag 'v1.1.0-beta.2' -Commits @('feat: new feature attempt') -ExistingTags $tags
+            $result.Success | Should -Be $false
+            $result.ErrorMessage | Should -Match 'ALPHA nach BETA nicht erlaubt'
+        }
+        
+        It 'should provide helpful error message for beta->alpha rejection' {
+            $tags = @('v1.0.0', 'v1.1.0-beta.1')
+            $result = Get-NextVersion -BranchName 'dev' -LastTag 'v1.1.0-beta.1' -Commits @('fix: work') -ExistingTags $tags
+            $result.Success | Should -Be $false
+            # Error should explain what to do instead
+            $result.ErrorMessage | Should -Not -BeNullOrEmpty
+        }
+    }
+    
+    Context '7. Beta → Stable (final release on release branch)' {
+        # Transition: beta => stable (1.1.0-beta.2 & Patch|Minor|Major* & push in release wird zu 1.1.0)
+        
+        It 'should finalize beta to stable version on release branch' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.3', 'v1.1.0-beta.1', 'v1.1.0-beta.2')
+            $result = Get-NextVersion -BranchName 'release' -LastTag 'v1.1.0-beta.2' -Commits @('fix: final polish') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0'
+            $result.PreReleaseType | Should -BeNullOrEmpty
+        }
+        
+        It 'should finalize beta.1 directly to stable' {
+            $tags = @('v1.0.0', 'v1.1.0-beta.1')
+            $result = Get-NextVersion -BranchName 'release' -LastTag 'v1.1.0-beta.1' -Commits @('docs: release notes') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0'
+            $result.PreReleaseType | Should -BeNullOrEmpty
+        }
+        
+        It 'should handle major version beta to stable' {
+            $tags = @('v1.0.0', 'v2.0.0-beta.3')
+            $result = Get-NextVersion -BranchName 'release' -LastTag 'v2.0.0-beta.3' -Commits @('fix: final fix') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '2.0.0'
+            $result.PreReleaseType | Should -BeNullOrEmpty
+        }
+    }
+    
+    Context '8. Alpha → Stable (skip beta, direct release)' {
+        # This is also a valid transition: alpha can go directly to stable
+        
+        It 'should allow alpha to stable transition on release branch' {
+            $tags = @('v1.0.0', 'v1.1.0-alpha.3')
+            $result = Get-NextVersion -BranchName 'release' -LastTag 'v1.1.0-alpha.3' -Commits @('fix: ready for release') -ExistingTags $tags
+            $result.Success | Should -Be $true
+            $result.NewVersion | Should -Be '1.1.0'
+            $result.PreReleaseType | Should -BeNullOrEmpty
+        }
+    }
+    
+    Context '9. Complete Lifecycle Scenario' {
+        # Simulates a complete development cycle from stable through alpha, beta, back to stable
+        
+        It 'should support full lifecycle: stable -> alpha -> beta -> stable' {
+            # Starting point: v1.0.0 stable
+            $tags = @('v1.0.0')
+            
+            # Step 1: Start alpha development on dev branch
+            $alpha1 = Get-NextVersion -BranchName 'dev' -LastTag 'v1.0.0' -Commits @('feat: new feature') -ExistingTags $tags
+            $alpha1.Success | Should -Be $true
+            $alpha1.NewVersion | Should -Be '1.1.0-alpha.1'
+            $tags += "v$($alpha1.NewVersion)"
+            
+            # Step 2: Continue alpha development
+            $alpha2 = Get-NextVersion -BranchName 'dev' -LastTag "v$($alpha1.NewVersion)" -Commits @('fix: bug in feature') -ExistingTags $tags
+            $alpha2.Success | Should -Be $true
+            $alpha2.NewVersion | Should -Be '1.1.0-alpha.2'
+            $tags += "v$($alpha2.NewVersion)"
+            
+            # Step 3: Promote to beta on master
+            $beta1 = Get-NextVersion -BranchName 'master' -LastTag "v$($alpha2.NewVersion)" -Commits @('fix: stabilization') -ExistingTags $tags
+            $beta1.Success | Should -Be $true
+            $beta1.NewVersion | Should -Be '1.1.0-beta.1'
+            $tags += "v$($beta1.NewVersion)"
+            
+            # Step 4: Continue beta testing
+            $beta2 = Get-NextVersion -BranchName 'master' -LastTag "v$($beta1.NewVersion)" -Commits @('fix: beta bug') -ExistingTags $tags
+            $beta2.Success | Should -Be $true
+            $beta2.NewVersion | Should -Be '1.1.0-beta.2'
+            $tags += "v$($beta2.NewVersion)"
+            
+            # Step 5: Final release
+            $stable = Get-NextVersion -BranchName 'release' -LastTag "v$($beta2.NewVersion)" -Commits @('docs: release notes') -ExistingTags $tags
+            $stable.Success | Should -Be $true
+            $stable.NewVersion | Should -Be '1.1.0'
+            $stable.PreReleaseType | Should -BeNullOrEmpty
+        }
+    }
+}
