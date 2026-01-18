@@ -58,6 +58,8 @@ jobs:
         uses: zricethezav/gitleaks-action@v2.3.9
         continue-on-error: true
         id: gitleaks
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 🔑 Authentifizierte GitHub API Calls (verhindert Rate Limit)
 
       - name: 📋 Validate Action Structure
         id: validate-structure
